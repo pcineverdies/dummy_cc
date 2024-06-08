@@ -17,3 +17,7 @@ Cargo.lock
 # Added by cargo
 
 /target
+
+# Others
+test_files/
+requirements.md
