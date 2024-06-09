@@ -1,5 +1,6 @@
 use std::env;
 mod lexer;
+mod parser;
 use lexer::lexer_impl::Lexer;
 
 fn main() {
