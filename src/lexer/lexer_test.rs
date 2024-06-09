@@ -53,7 +53,7 @@ mod test {
     fn lx_test_operators() {
         use crate::lexer::lexer_impl::{Lexer, Operator, Tk, Token};
 
-        let input_code = "==+-/>=k&^
+        let input_code = "==+-/>=k&^!=
 ";
 
         assert_eq!(
@@ -91,6 +91,10 @@ mod test {
                 },
                 Token {
                     tk: Tk::Operator(Operator::Xor),
+                    line_number: 1
+                },
+                Token {
+                    tk: Tk::Operator(Operator::DiffCompare),
                     line_number: 1
                 },
                 Token {
@@ -137,7 +141,7 @@ mod test {
 
     #[test]
     fn lx_test_numbers() {
-        use crate::lexer::lexer_impl::{Lexer, Tk, Token};
+        use crate::lexer::lexer_impl::{Keyword, Lexer, Tk, Token};
 
         let input_code = "
             0x10
@@ -147,6 +151,7 @@ mod test {
             080 0xer
             // comment
             d0x20
+            break
 ";
 
         assert_eq!(
@@ -183,8 +188,12 @@ mod test {
                     line_number: 8
                 },
                 Token {
-                    tk: Tk::EOF,
+                    tk: Tk::Keyword(Keyword::Break),
                     line_number: 9
+                },
+                Token {
+                    tk: Tk::EOF,
+                    line_number: 10
                 },
             ]
         );

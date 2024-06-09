@@ -10,6 +10,7 @@ pub enum Keyword {
     Return,
     Char,
     If,
+    Else,
     While,
     For,
     Bool,
@@ -17,6 +18,8 @@ pub enum Keyword {
     Or,
     True,
     False,
+    Continue,
+    Break,
 }
 
 impl Keyword {
@@ -32,6 +35,7 @@ impl Keyword {
             "return" => Some(Keyword::Return),
             "char" => Some(Keyword::Char),
             "if" => Some(Keyword::If),
+            "else" => Some(Keyword::Else),
             "while" => Some(Keyword::While),
             "for" => Some(Keyword::For),
             "bool" => Some(Keyword::Bool),
@@ -39,6 +43,8 @@ impl Keyword {
             "or" => Some(Keyword::Or),
             "true" => Some(Keyword::True),
             "false" => Some(Keyword::False),
+            "continue" => Some(Keyword::Continue),
+            "break" => Some(Keyword::Break),
             _ => None,
         }
     }
@@ -83,6 +89,7 @@ impl Bracket {
 pub enum Operator {
     Assign,
     EqualCompare,
+    DiffCompare,
     LTCompare,
     GTCompare,
     LEComare,
@@ -96,6 +103,7 @@ pub enum Operator {
     Not,
     Complement,
     Or,
+    Module,
     LShift,
     RShift,
 }
@@ -110,6 +118,7 @@ impl Operator {
         match input {
             "=" => Some(Operator::Assign),
             "==" => Some(Operator::EqualCompare),
+            "!=" => Some(Operator::DiffCompare),
             "<" => Some(Operator::LTCompare),
             ">" => Some(Operator::GTCompare),
             "<=" => Some(Operator::LEComare),
@@ -123,6 +132,7 @@ impl Operator {
             "~" => Some(Operator::Complement),
             "!" => Some(Operator::Not),
             "|" => Some(Operator::Or),
+            "%" => Some(Operator::Module),
             "<<" => Some(Operator::LShift),
             ">>" => Some(Operator::RShift),
             _ => None,
@@ -282,6 +292,11 @@ impl Lexer {
             if self.current_char == '=' && self.get_char(self.current_index + 1) == '=' {
                 self.advance_index();
                 return Some(Tk::Operator(Operator::EqualCompare));
+            }
+            // != operator
+            if self.current_char == '!' && self.get_char(self.current_index + 1) == '=' {
+                self.advance_index();
+                return Some(Tk::Operator(Operator::DiffCompare));
             }
             // <= operator
             if self.current_char == '<' && self.get_char(self.current_index + 1) == '=' {
