@@ -3,6 +3,7 @@ use crate::lexer::lexer_impl::{Bracket, Keyword, Operator, Tk, Token};
 pub struct Parser {
     token_list: Vec<Token>,
     current_position: usize,
+    depth: u32,
 }
 
 impl Parser {
@@ -16,25 +17,222 @@ impl Parser {
         Parser {
             token_list,
             current_position: 0,
+            depth: 0,
         }
     }
 
     /// Parser::get_current
     ///
     /// Get the current token under exam
-    fn get_current(&mut self) -> Token {
-        return self.token_list[self.current_position].clone();
+    fn get_current(&mut self) -> Tk {
+        return self.token_list[self.current_position].clone().tk;
     }
 
-    /// Parser::lookahead
+    /// Parser::advance
     ///
-    /// Get the next token under exam
-    fn lookahead(&mut self) -> Token {
-        return self.token_list[self.current_position + 1].clone();
+    /// Advance to next token
+    fn advance(&mut self) {
+        println!("Consuming {:?}", self.get_current());
+        self.current_position += 1;
     }
 
-    /// Parser::parse
-    ///
-    /// Parse the input list of tokens
-    pub fn parse(&mut self) {}
+    pub fn parse(&mut self) {
+        if self.expr() {
+            if self.get_current() == Tk::EOF {
+                println!("Parsed!");
+            } else {
+                println!("Failed parsing!");
+            }
+        } else {
+            println!("Failed parsing!");
+        }
+    }
+
+    fn expr(&mut self) -> bool {
+        println!("-> expr");
+        return self.equality();
+    }
+
+    fn equality(&mut self) -> bool {
+        println!("-> equality");
+        if self.comparison() {
+            return self.equality_star();
+        } else {
+            println!("EQUALITY FAIL");
+            return false;
+        }
+    }
+
+    fn equality_star(&mut self) -> bool {
+        println!("-> equality_star");
+        if self.get_current() == Tk::Operator(Operator::EqualCompare)
+            || self.get_current() == Tk::Operator(Operator::DiffCompare)
+        {
+            self.advance();
+            return self.expr();
+        } else if self.get_current() == Tk::Bracket(Bracket::RBracket)
+            || self.get_current() == Tk::EOF
+        {
+            return true;
+        } else {
+            println!("EQUALITY STAR FAIL");
+            return false;
+        }
+    }
+
+    fn comparison(&mut self) -> bool {
+        println!("-> comparison");
+        if self.term() {
+            return self.comparison_star();
+        } else {
+            println!("COMPARISON FAIL");
+            return false;
+        }
+    }
+
+    fn comparison_star(&mut self) -> bool {
+        println!("-> comparison_star");
+        if self.get_current() == Tk::Operator(Operator::LTCompare)
+            || self.get_current() == Tk::Operator(Operator::GTCompare)
+            || self.get_current() == Tk::Operator(Operator::GECompare)
+            || self.get_current() == Tk::Operator(Operator::LECompare)
+        {
+            self.advance();
+            return self.expr();
+        } else if self.get_current() == Tk::Bracket(Bracket::RBracket)
+            || self.get_current() == Tk::Operator(Operator::EqualCompare)
+            || self.get_current() == Tk::Operator(Operator::DiffCompare)
+            || self.get_current() == Tk::Bracket(Bracket::RBracket)
+            || self.get_current() == Tk::EOF
+        {
+            return true;
+        } else {
+            println!("COMPARISON STAR FAIL");
+            return false;
+        }
+    }
+
+    fn term(&mut self) -> bool {
+        println!("-> term");
+        if self.factor() {
+            return self.term_star();
+        } else {
+            println!("TERM FAIL");
+            return false;
+        }
+    }
+
+    fn term_star(&mut self) -> bool {
+        println!("-> term_star");
+        if self.get_current() == Tk::Operator(Operator::Plus)
+            || self.get_current() == Tk::Operator(Operator::Minus)
+            || self.get_current() == Tk::Operator(Operator::Or)
+            || self.get_current() == Tk::Operator(Operator::And)
+            || self.get_current() == Tk::Operator(Operator::Xor)
+        {
+            self.advance();
+            return self.expr();
+        } else if self.get_current() == Tk::Operator(Operator::LTCompare)
+            || self.get_current() == Tk::Operator(Operator::GTCompare)
+            || self.get_current() == Tk::Operator(Operator::LECompare)
+            || self.get_current() == Tk::Operator(Operator::GECompare)
+            || self.get_current() == Tk::Operator(Operator::EqualCompare)
+            || self.get_current() == Tk::Operator(Operator::DiffCompare)
+            || self.get_current() == Tk::Bracket(Bracket::RBracket)
+            || self.get_current() == Tk::EOF
+        {
+            return true;
+        } else {
+            println!("TERM STAR FAIL");
+            return false;
+        }
+    }
+
+    fn factor(&mut self) -> bool {
+        println!("-> factor");
+        if self.unary() {
+            return self.factor_star();
+        } else {
+            println!("FACTOR ERROR");
+            return false;
+        }
+    }
+
+    fn factor_star(&mut self) -> bool {
+        println!("-> factor_star");
+        if self.get_current() == Tk::Operator(Operator::Module)
+            || self.get_current() == Tk::Operator(Operator::Slash)
+            || self.get_current() == Tk::Operator(Operator::Module)
+            || self.get_current() == Tk::Operator(Operator::Asterisk)
+        {
+            self.advance();
+            return self.expr();
+        } else if self.get_current() == Tk::Operator(Operator::Plus)
+            || self.get_current() == Tk::Operator(Operator::Xor)
+            || self.get_current() == Tk::Operator(Operator::Or)
+            || self.get_current() == Tk::Operator(Operator::And)
+            || self.get_current() == Tk::Operator(Operator::Minus)
+            || self.get_current() == Tk::Operator(Operator::LTCompare)
+            || self.get_current() == Tk::Operator(Operator::GTCompare)
+            || self.get_current() == Tk::Operator(Operator::LECompare)
+            || self.get_current() == Tk::Operator(Operator::GECompare)
+            || self.get_current() == Tk::Operator(Operator::EqualCompare)
+            || self.get_current() == Tk::Operator(Operator::DiffCompare)
+            || self.get_current() == Tk::Bracket(Bracket::RBracket)
+            || self.get_current() == Tk::EOF
+        {
+            return true;
+        } else {
+            println!("{:?}", self.get_current());
+            println!("FACTOR STAR FAIL");
+            return false;
+        }
+    }
+
+    fn unary(&mut self) -> bool {
+        println!("-> unary");
+        if self.get_current() == Tk::Operator(Operator::Plus)
+            || self.get_current() == Tk::Operator(Operator::Minus)
+            || self.get_current() == Tk::Operator(Operator::Complement)
+        {
+            self.advance();
+            return self.expr();
+        }
+        return self.primary();
+    }
+
+    fn primary(&mut self) -> bool {
+        println!("-> primary");
+        match self.get_current() {
+            Tk::IntegerLiteral(_) => {
+                self.advance();
+                return true;
+            }
+            Tk::Identifier(_) => {
+                self.advance();
+                return true;
+            }
+            Tk::Keyword(Keyword::True) | Tk::Keyword(Keyword::False) => {
+                self.advance();
+                return true;
+            }
+            Tk::Bracket(Bracket::LBracket) => {
+                self.advance();
+                if !self.expr() {
+                    println!("PRIMARY ERROR");
+                    return false;
+                }
+                if self.get_current() != Tk::Bracket(Bracket::RBracket) {
+                    println!("PRIMARY ERROR");
+                    return false;
+                }
+                self.advance();
+                return true;
+            }
+            _ => {
+                println!("PRIMARY ERROR");
+                return false;
+            }
+        }
+    }
 }

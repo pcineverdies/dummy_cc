@@ -92,7 +92,7 @@ pub enum Operator {
     DiffCompare,
     LTCompare,
     GTCompare,
-    LEComare,
+    LECompare,
     GECompare,
     Minus,
     Plus,
@@ -121,7 +121,7 @@ impl Operator {
             "!=" => Some(Operator::DiffCompare),
             "<" => Some(Operator::LTCompare),
             ">" => Some(Operator::GTCompare),
-            "<=" => Some(Operator::LEComare),
+            "<=" => Some(Operator::LECompare),
             ">=" => Some(Operator::GECompare),
             "-" => Some(Operator::Minus),
             "+" => Some(Operator::Plus),
@@ -257,8 +257,6 @@ impl Lexer {
             line_number: self.current_line_number,
         });
 
-        println!("{:?}", self.lexemes_list);
-
         // Return the list of tokens
         self.lexemes_list.clone()
     }
@@ -301,7 +299,7 @@ impl Lexer {
             // <= operator
             if self.current_char == '<' && self.get_char(self.current_index + 1) == '=' {
                 self.advance_index();
-                return Some(Tk::Operator(Operator::LEComare));
+                return Some(Tk::Operator(Operator::LECompare));
             }
             // >= operator
             if self.current_char == '>' && self.get_char(self.current_index + 1) == '=' {
