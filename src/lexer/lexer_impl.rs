@@ -512,7 +512,6 @@ impl Lexer {
             self.lexer_error("Can't parse character".to_string());
             return None;
         }
-        self.advance_index();
 
         return Some(chr);
     }
@@ -557,7 +556,7 @@ impl Lexer {
                 _ => self.lexer_error(format!("Can't parse binary number {}", str).to_string()),
             };
         // If the string starts with 0, parse it as octal
-        } else if str.chars().nth(0).unwrap() == '0' {
+        } else if str.chars().nth(0).unwrap() == '0' && str.len() != 1 {
             let without_prefix = str.trim_start_matches("0");
             match u64::from_str_radix(without_prefix, 8) {
                 Ok(parsed_int) => return Some(parsed_int),
