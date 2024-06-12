@@ -1,4 +1,5 @@
 use std::fs;
+use std::fs::read_to_string;
 
 /// enum Keyword
 ///
@@ -164,6 +165,7 @@ pub enum Tk {
 pub struct Token {
     pub tk: Tk,
     pub line_number: u32,
+    pub character_number: u32,
 }
 
 /// struct Lexer
@@ -176,6 +178,9 @@ pub struct Lexer {
     current_char: char,
     lexemes_list: Vec<Token>,
     current_line_number: u32,
+    current_character_number: u32,
+    errors_counter: u32,
+    file_name: String,
 }
 
 impl Lexer {
@@ -192,7 +197,7 @@ impl Lexer {
         is_file: bool,
     ) -> Result<Lexer, Box<dyn std::error::Error + 'static>> {
         let input_code = if is_file {
-            let input_code_u8 = fs::read(file_name)?;
+            let input_code_u8 = fs::read(file_name.clone())?;
             // Open file and read all the characters
             input_code_u8.iter().map(|b| *b as char).collect::<Vec<_>>()
         } else {
@@ -210,6 +215,12 @@ impl Lexer {
             lexemes_list: Vec::new(),
             // Current line number analyzed
             current_line_number: 1,
+            // Current character number in the line
+            current_character_number: 1,
+            // Number of errors found
+            errors_counter: 0,
+            // Name of the file to handle
+            file_name,
         })
     }
 
@@ -219,8 +230,8 @@ impl Lexer {
     /// TODO: The lexer should be able to parse more than one file. For this reason, the tokenizer
     /// should be able to run on multiple files
     ///
-    /// @return [Vec<Token>]: List of tokens from the lexed file
-    pub fn tokenize(&mut self) -> Vec<Token> {
+    /// @return [Option<Vec<Token>>]: List of tokens from the lexed file, None if error is found
+    pub fn tokenize(&mut self) -> Option<Vec<Token>> {
         // Until the file is not finished
         while self.current_index < self.input_code.len() {
             // Skip all the whitespaces
@@ -236,6 +247,7 @@ impl Lexer {
                 self.lexemes_list.push(Token {
                     tk: Tk::ERROR,
                     line_number: self.current_line_number,
+                    character_number: self.current_character_number,
                 });
             // Push the valid token
             } else {
@@ -244,6 +256,7 @@ impl Lexer {
                     self.lexemes_list.push(Token {
                         tk: token_unwrapped,
                         line_number: self.current_line_number,
+                        character_number: self.current_character_number,
                     });
                 }
             }
@@ -255,10 +268,15 @@ impl Lexer {
         self.lexemes_list.push(Token {
             tk: Tk::EOF,
             line_number: self.current_line_number,
+            character_number: self.current_character_number,
         });
 
         // Return the list of tokens
-        self.lexemes_list.clone()
+        if self.errors_counter == 0 {
+            return Some(self.lexemes_list.clone());
+        } else {
+            return None;
+        }
     }
 
     /// Lexer::get_next_token
@@ -379,10 +397,12 @@ impl Lexer {
     /// Consider next character
     fn advance_index(&mut self) {
         self.current_index += 1;
+        self.current_character_number += 1;
 
         // If we have a \n, then the also increase the line number
         if self.current_char == '\n' {
             self.current_line_number += 1;
+            self.current_character_number = 1;
         }
 
         // If we have covered the whole file, then we can return the EOF
@@ -462,7 +482,7 @@ impl Lexer {
         // Until and exit condition is found
         loop {
             str.push(next_char);
-            self.current_index += 1;
+            self.advance_index();
             next_char = self.input_code[self.current_index];
             if next_char == '\"' {
                 return Some(str);
@@ -485,7 +505,7 @@ impl Lexer {
         loop {
             let next_char = self.input_code[self.current_index + 1];
             if next_char.is_alphanumeric() {
-                self.current_index += 1;
+                self.advance_index();
                 str.push(next_char);
             } else {
                 return str;
@@ -530,7 +550,7 @@ impl Lexer {
             // Also allow b and x to represent binary and hexadecimal radix in the standard C
             // format
             if next_char.is_alphanumeric() {
-                self.current_index += 1;
+                self.advance_index();
                 str.push(next_char);
             } else {
                 break;
@@ -578,7 +598,48 @@ impl Lexer {
     /// Print an error on the error stream, by appending the line number
     ///
     /// @input error_str [String]: error message to print
-    fn lexer_error(&self, error_str: String) {
-        eprintln!("Line number {}: {}", self.current_line_number, error_str);
+    fn lexer_error(&mut self, error_str: String) {
+        self.errors_counter += 1;
+        let line_number = self.current_line_number;
+        let character_number = self.current_character_number;
+        let file_lines = self.read_lines(&self.file_name);
+
+        eprint!(
+            "\x1b[34m{}:{}:{}: \x1b[0m",
+            self.file_name, line_number, character_number
+        );
+        eprintln!("\x1b[91merror lexer: \x1b[34m{}\x1b[0m", error_str);
+        if self.errors_counter > 1 {
+            eprintln!("(this error might be a propagation of the previous ones)");
+        }
+
+        eprintln!(
+            "{}\t| {}",
+            line_number,
+            file_lines[line_number as usize - 1]
+        );
+        eprint!("\t| ");
+
+        if character_number >= 4 {
+            for _ in 0..character_number - 4 {
+                eprint!(" ");
+            }
+        }
+
+        for _ in 0..3.min(character_number - 1) {
+            eprint!("\x1b[91m~\x1b[0m");
+        }
+
+        eprintln!("\x1b[91m^~~~\x1b[0m");
+    }
+
+    fn read_lines(&self, filename: &str) -> Vec<String> {
+        let mut result = Vec::new();
+
+        for line in read_to_string(filename).unwrap().lines() {
+            result.push(line.to_string())
+        }
+
+        result
     }
 }
