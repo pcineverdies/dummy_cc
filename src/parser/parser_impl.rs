@@ -53,7 +53,10 @@ impl Parser {
         debug_println!("Consuming {:?}", self.get_current());
         self.current_position += 1;
         if self.current_position as usize >= self.token_list.len() {
-            eprintln!("PARSER ERROR: Token index out of bound");
+            eprintln!(
+                "\x1b[91mFailed parsing with {} errors\x1b[0m",
+                self.errors_counter
+            );
             exit(1);
         }
     }
@@ -82,6 +85,7 @@ impl Parser {
         while self.get_current() != Tk::Semicolon
             && self.get_current() != Tk::Bracket(Bracket::RCurly)
         {
+            println!("\t\terror found");
             self.advance();
         }
         self.advance();
@@ -157,11 +161,12 @@ impl Parser {
             Tk::Keyword(Keyword::Char) => return ParserResult::Match,
             Tk::Keyword(Keyword::Int) => return ParserResult::Match,
             Tk::Keyword(Keyword::Bool) => return ParserResult::Match,
+            Tk::Keyword(Keyword::U8) => return ParserResult::Match,
+            Tk::Keyword(Keyword::U16) => return ParserResult::Match,
+            Tk::Keyword(Keyword::U32) => return ParserResult::Match,
             Tk::Keyword(Keyword::While) => return ParserResult::Match,
             _ => {
-                return self.parser_error(
-                    "one of {identifier, eof, ), for, while, return, break, continue, char, int, bool, if}",
-                );
+                return self.parser_error("");
             }
         }
     }
@@ -257,6 +262,9 @@ impl Parser {
         if self.get_current() != Tk::Keyword(Keyword::Char)
             && self.get_current() != Tk::Keyword(Keyword::Bool)
             && self.get_current() != Tk::Keyword(Keyword::Int)
+            && self.get_current() != Tk::Keyword(Keyword::U8)
+            && self.get_current() != Tk::Keyword(Keyword::U16)
+            && self.get_current() != Tk::Keyword(Keyword::U32)
         {
             return ParserResult::Unmatch;
         }
@@ -373,9 +381,12 @@ impl Parser {
                 Tk::Keyword(Keyword::Char) => return ParserResult::Match,
                 Tk::Keyword(Keyword::Int) => return ParserResult::Match,
                 Tk::Keyword(Keyword::Bool) => return ParserResult::Match,
+                Tk::Keyword(Keyword::U8) => return ParserResult::Match,
+                Tk::Keyword(Keyword::U16) => return ParserResult::Match,
+                Tk::Keyword(Keyword::U32) => return ParserResult::Match,
                 Tk::Keyword(Keyword::If) => return ParserResult::Match,
                 _ => {
-                    return self.parser_error("one of {identifier, eof, ), for, while, return, break, continue, char, int, bool, if}");
+                    return self.parser_error("");
                 }
             }
         }
@@ -437,8 +448,7 @@ impl Parser {
         {
             return ParserResult::Match;
         } else {
-            return self
-                .parser_error("one of {), ; , ==, !=, <, >, >=, <=, ^, ||, &&, -, +, /, *}");
+            return self.parser_error("");
         }
     }
 
@@ -478,8 +488,7 @@ impl Parser {
         {
             return ParserResult::Match;
         } else {
-            return self
-                .parser_error("one of {), ; , ==, !=, <, >, >=, <=, ^, ||, &&, -, +, /, *}");
+            return self.parser_error("");
         }
     }
 
@@ -520,8 +529,7 @@ impl Parser {
         {
             return ParserResult::Match;
         } else {
-            return self
-                .parser_error("one of {), ; , ==, !=, <, >, >=, <=, ^, ||, &&, -, +, /, *}");
+            return self.parser_error("");
         }
     }
 
@@ -561,8 +569,7 @@ impl Parser {
         {
             return ParserResult::Match;
         } else {
-            return self
-                .parser_error("one of {), ; , ==, !=, <, >, >=, <=, ^, ||, &&, -, +, /, *}");
+            return self.parser_error("");
         }
     }
 
@@ -600,17 +607,17 @@ impl Parser {
             }
             Tk::Bracket(Bracket::LBracket) => {
                 self.advance();
-                if self.expr() == ParserResult::Match {
+                if self.expr() != ParserResult::Match {
                     return ParserResult::Fail;
                 }
                 if self.get_current() != Tk::Bracket(Bracket::RBracket) {
                     return self.parser_error("right bracket");
                 }
                 self.advance();
-                return ParserResult::Fail;
+                return ParserResult::Match;
             }
             _ => {
-                return self.parser_error("one of {integer, identifier, char, true, false, (}");
+                return self.parser_error("");
             }
         }
     }
@@ -625,11 +632,19 @@ impl Parser {
             "\x1b[34m{}:{}:{}: \x1b[0m",
             self.file_name, line_number, character_number
         );
-        eprintln!(
-            "\x1b[91merror parser: \x1b[0mexpected `\x1b[34m{}\x1b[0m`, found `\x1b[34m{:?}\x1b[0m`",
-            expected,
-            self.get_current()
-        );
+
+        if expected.len() != 0 {
+            eprintln!(
+                "\x1b[91merror parser: \x1b[0mexpected `\x1b[34m{}\x1b[0m`, found `\x1b[34m{:?}\x1b[0m`",
+                expected,
+                self.get_current()
+            );
+        } else {
+            eprintln!(
+                "\x1b[91merror parser: \x1b[0munexpected token `\x1b[34m{:?}\x1b[0m`",
+                self.get_current()
+            );
+        }
         if self.errors_counter > 1 {
             eprintln!("(this error might be a propagation of the previous ones)");
         }
