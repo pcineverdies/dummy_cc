@@ -21,6 +21,9 @@ pub enum Keyword {
     False,
     Continue,
     Break,
+    U8,
+    U16,
+    U32,
 }
 
 impl Keyword {
@@ -46,6 +49,9 @@ impl Keyword {
             "false" => Some(Keyword::False),
             "continue" => Some(Keyword::Continue),
             "break" => Some(Keyword::Break),
+            "u8" => Some(Keyword::U8),
+            "u16" => Some(Keyword::U16),
+            "u32" => Some(Keyword::U32),
             _ => None,
         }
     }
@@ -181,6 +187,70 @@ pub struct Lexer {
     current_character_number: u32,
     errors_counter: u32,
     file_name: String,
+    is_file: bool,
+}
+
+impl Tk {
+    pub fn to_string(&self) -> String {
+        return match self {
+            Tk::Bracket(br) => match br {
+                Bracket::LCurly => "{{".to_string(),
+                Bracket::RCurly => "}".to_string(),
+                Bracket::LSquare => "[".to_string(),
+                Bracket::RSquare => "]".to_string(),
+                Bracket::LBracket => "(".to_string(),
+                Bracket::RBracket => ")".to_string(),
+            },
+            Tk::Keyword(kw) => match kw {
+                Keyword::Int => "int".to_string(),
+                Keyword::Main => "main".to_string(),
+                Keyword::Return => "return".to_string(),
+                Keyword::Char => "char".to_string(),
+                Keyword::If => "if".to_string(),
+                Keyword::Else => "else".to_string(),
+                Keyword::While => "while".to_string(),
+                Keyword::For => "for".to_string(),
+                Keyword::Bool => "bool".to_string(),
+                Keyword::And => "and".to_string(),
+                Keyword::Or => "or".to_string(),
+                Keyword::True => "true".to_string(),
+                Keyword::False => "false".to_string(),
+                Keyword::Continue => "continue".to_string(),
+                Keyword::Break => "break".to_string(),
+                Keyword::U8 => "u8".to_string(),
+                Keyword::U16 => "u16".to_string(),
+                Keyword::U32 => "u32".to_string(),
+            },
+            Tk::Operator(operator) => match operator {
+                Operator::Assign => "=".to_string(),
+                Operator::EqualCompare => "==".to_string(),
+                Operator::DiffCompare => "!=".to_string(),
+                Operator::LTCompare => "<".to_string(),
+                Operator::GTCompare => ">".to_string(),
+                Operator::LECompare => "<=".to_string(),
+                Operator::GECompare => ">=".to_string(),
+                Operator::Minus => "-".to_string(),
+                Operator::Plus => "+".to_string(),
+                Operator::Asterisk => "*".to_string(),
+                Operator::Slash => "/".to_string(),
+                Operator::Xor => "^".to_string(),
+                Operator::And => "&".to_string(),
+                Operator::Complement => "~".to_string(),
+                Operator::Not => "!".to_string(),
+                Operator::Or => "|".to_string(),
+                Operator::Module => "%".to_string(),
+                Operator::LShift => "<<".to_string(),
+                Operator::RShift => ">>".to_string(),
+            },
+            Tk::Semicolon => ";".to_string(),
+            Tk::Identifier(id) => id.to_string(),
+            Tk::IntegerLiteral(num) => num.to_string(),
+            Tk::String(str) => format!("\"{}\"", str).to_string(),
+            Tk::Char(chr) => format!("\'{}\'", chr).to_string(),
+            Tk::EOF => "EOF".to_string(),
+            Tk::ERROR => "ERROR".to_string(),
+        };
+    }
 }
 
 impl Lexer {
@@ -221,6 +291,8 @@ impl Lexer {
             errors_counter: 0,
             // Name of the file to handle
             file_name,
+            // Handling a file?
+            is_file,
         })
     }
 
@@ -345,7 +417,10 @@ impl Lexer {
             if str.is_some() {
                 return Some(Tk::String(str.unwrap()));
             } else {
-                eprintln!("Line {}: string is not closed", self.current_line_number);
+                self.lexer_error(format!(
+                    "Line {}: String is not closed",
+                    self.current_line_number
+                ));
                 return None;
             }
         }
@@ -600,6 +675,10 @@ impl Lexer {
     /// @input error_str [String]: error message to print
     fn lexer_error(&mut self, error_str: String) {
         self.errors_counter += 1;
+        if !self.is_file {
+            return;
+        }
+
         let line_number = self.current_line_number;
         let character_number = self.current_character_number;
         let file_lines = self.read_lines(&self.file_name);

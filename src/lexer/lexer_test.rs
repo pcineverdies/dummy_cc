@@ -15,35 +15,43 @@ mod test {
         assert_eq!(
             Lexer::new(input_code.to_string(), false)
                 .unwrap()
-                .tokenize(),
+                .tokenize()
+                .unwrap(),
             &[
                 Token {
                     tk: Tk::Keyword(Keyword::Int),
-                    line_number: 1
+                    line_number: 1,
+                    character_number: 3,
                 },
                 Token {
                     tk: Tk::Keyword(Keyword::Main),
-                    line_number: 3
+                    line_number: 3,
+                    character_number: 16,
                 },
                 Token {
                     tk: Tk::Bracket(Bracket::LBracket),
-                    line_number: 4
+                    line_number: 4,
+                    character_number: 13,
                 },
                 Token {
                     tk: Tk::Bracket(Bracket::RBracket),
-                    line_number: 6
+                    line_number: 6,
+                    character_number: 13,
                 },
                 Token {
                     tk: Tk::Bracket(Bracket::LCurly),
-                    line_number: 6
+                    line_number: 6,
+                    character_number: 14,
                 },
                 Token {
                     tk: Tk::Bracket(Bracket::RCurly),
-                    line_number: 6
+                    line_number: 6,
+                    character_number: 15,
                 },
                 Token {
                     tk: Tk::EOF,
-                    line_number: 7
+                    line_number: 7,
+                    character_number: 2,
                 },
             ]
         );
@@ -59,47 +67,58 @@ mod test {
         assert_eq!(
             Lexer::new(input_code.to_string(), false)
                 .unwrap()
-                .tokenize(),
+                .tokenize()
+                .unwrap(),
             &[
                 Token {
                     tk: Tk::Operator(Operator::EqualCompare),
-                    line_number: 1
+                    line_number: 1,
+                    character_number: 2,
                 },
                 Token {
                     tk: Tk::Operator(Operator::Plus),
-                    line_number: 1
+                    line_number: 1,
+                    character_number: 3,
                 },
                 Token {
                     tk: Tk::Operator(Operator::Minus),
-                    line_number: 1
+                    line_number: 1,
+                    character_number: 4,
                 },
                 Token {
                     tk: Tk::Operator(Operator::Slash),
-                    line_number: 1
+                    line_number: 1,
+                    character_number: 5,
                 },
                 Token {
                     tk: Tk::Operator(Operator::GECompare),
-                    line_number: 1
+                    line_number: 1,
+                    character_number: 7,
                 },
                 Token {
                     tk: Tk::Identifier("k".to_string()),
-                    line_number: 1
+                    line_number: 1,
+                    character_number: 8,
                 },
                 Token {
                     tk: Tk::Operator(Operator::And),
-                    line_number: 1
+                    line_number: 1,
+                    character_number: 9,
                 },
                 Token {
                     tk: Tk::Operator(Operator::Xor),
-                    line_number: 1
+                    line_number: 1,
+                    character_number: 10,
                 },
                 Token {
                     tk: Tk::Operator(Operator::DiffCompare),
-                    line_number: 1
+                    line_number: 1,
+                    character_number: 12,
                 },
                 Token {
                     tk: Tk::EOF,
-                    line_number: 2
+                    line_number: 2,
+                    character_number: 2,
                 },
             ]
         );
@@ -107,41 +126,22 @@ mod test {
 
     #[test]
     fn lx_test_open_string() {
-        use crate::lexer::lexer_impl::{Lexer, Operator, Tk, Token};
+        use crate::lexer::lexer_impl::Lexer;
 
         let input_code = "
             \"daje
     ++
 ";
 
-        assert_eq!(
-            Lexer::new(input_code.to_string(), false)
-                .unwrap()
-                .tokenize(),
-            &[
-                Token {
-                    tk: Tk::ERROR,
-                    line_number: 2
-                },
-                Token {
-                    tk: Tk::Operator(Operator::Plus),
-                    line_number: 2
-                },
-                Token {
-                    tk: Tk::Operator(Operator::Plus),
-                    line_number: 2
-                },
-                Token {
-                    tk: Tk::EOF,
-                    line_number: 3
-                },
-            ]
-        );
+        assert!(Lexer::new(input_code.to_string(), false)
+            .unwrap()
+            .tokenize()
+            .is_none());
     }
 
     #[test]
     fn lx_test_numbers() {
-        use crate::lexer::lexer_impl::{Keyword, Lexer, Tk, Token};
+        use crate::lexer::lexer_impl::Lexer;
 
         let input_code = "
             0x10
@@ -154,49 +154,10 @@ mod test {
             break
 ";
 
-        assert_eq!(
-            Lexer::new(input_code.to_string(), false)
-                .unwrap()
-                .tokenize(),
-            &[
-                Token {
-                    tk: Tk::IntegerLiteral(16),
-                    line_number: 2
-                },
-                Token {
-                    tk: Tk::IntegerLiteral(10),
-                    line_number: 3
-                },
-                Token {
-                    tk: Tk::IntegerLiteral(8),
-                    line_number: 4
-                },
-                Token {
-                    tk: Tk::IntegerLiteral(2),
-                    line_number: 5
-                },
-                Token {
-                    tk: Tk::ERROR,
-                    line_number: 6
-                },
-                Token {
-                    tk: Tk::ERROR,
-                    line_number: 6
-                },
-                Token {
-                    tk: Tk::Identifier("d0x20".to_string()),
-                    line_number: 8
-                },
-                Token {
-                    tk: Tk::Keyword(Keyword::Break),
-                    line_number: 9
-                },
-                Token {
-                    tk: Tk::EOF,
-                    line_number: 10
-                },
-            ]
-        );
+        assert!(Lexer::new(input_code.to_string(), false)
+            .unwrap()
+            .tokenize()
+            .is_none());
     }
 
     #[test]
@@ -206,34 +167,30 @@ mod test {
         let input_code = "
     'd'
     'e'
-    '  '
+
 
 ";
 
         assert_eq!(
             Lexer::new(input_code.to_string(), false)
                 .unwrap()
-                .tokenize(),
+                .tokenize()
+                .unwrap(),
             &[
                 Token {
                     tk: Tk::Char('d'),
-                    line_number: 2
+                    line_number: 2,
+                    character_number: 7,
                 },
                 Token {
                     tk: Tk::Char('e'),
-                    line_number: 3
-                },
-                Token {
-                    tk: Tk::ERROR,
-                    line_number: 4
-                },
-                Token {
-                    tk: Tk::ERROR,
-                    line_number: 4
+                    line_number: 3,
+                    character_number: 7,
                 },
                 Token {
                     tk: Tk::EOF,
-                    line_number: 6
+                    line_number: 6,
+                    character_number: 2,
                 },
             ]
         );
@@ -241,7 +198,7 @@ mod test {
 
     #[test]
     fn lx_test_invalid() {
-        use crate::lexer::lexer_impl::{Lexer, Tk, Token};
+        use crate::lexer::lexer_impl::Lexer;
 
         let input_code = "
     'd'
@@ -250,32 +207,9 @@ mod test {
 
 ";
 
-        assert_eq!(
-            Lexer::new(input_code.to_string(), false)
-                .unwrap()
-                .tokenize(),
-            &[
-                Token {
-                    tk: Tk::Char('d'),
-                    line_number: 2
-                },
-                Token {
-                    tk: Tk::Char('e'),
-                    line_number: 3
-                },
-                Token {
-                    tk: Tk::ERROR,
-                    line_number: 4
-                },
-                Token {
-                    tk: Tk::ERROR,
-                    line_number: 4
-                },
-                Token {
-                    tk: Tk::EOF,
-                    line_number: 6
-                },
-            ]
-        );
+        assert!(Lexer::new(input_code.to_string(), false)
+            .unwrap()
+            .tokenize()
+            .is_none());
     }
 }
