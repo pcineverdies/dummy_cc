@@ -1,4 +1,5 @@
 use std::env;
+mod ast;
 mod lexer;
 mod parser;
 use lexer::lexer_impl::Lexer;
