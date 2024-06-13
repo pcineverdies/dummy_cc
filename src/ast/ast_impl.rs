@@ -1,6 +1,6 @@
 use crate::lexer::lexer_impl::Token;
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AstNode {
     AstNull,
     AstNumerical(Token),
@@ -14,7 +14,6 @@ pub enum AstNode {
     AstDecl(Token, Box<AstNode>, Box<AstNode>),
     AstWhile(Box<AstNode>, Box<AstNode>),
     AstFlow(Token, Box<AstNode>),
-    AstExpression(Box<AstNode>),
     AstExpressionUnary(Token, Box<AstNode>),
     AstExpressionBinary(Token, Box<AstNode>, Box<AstNode>),
 }
@@ -42,10 +41,6 @@ impl AstNode {
 
     pub fn new_ast_statements(van: &Vec<AstNode>) -> AstNode {
         return AstNode::AstStatements(van.to_vec());
-    }
-
-    pub fn new_ast_expr(an: &AstNode) -> AstNode {
-        return AstNode::AstExpression(Box::new(an.clone()));
     }
 
     pub fn new_ast_assignment(an1: &AstNode, an2: &AstNode) -> AstNode {
@@ -103,12 +98,21 @@ impl AstNode {
             AstNode::AstIdentifier(value) => result += &value.tk.to_string(),
             AstNode::AstStatements(value) => {
                 for s in value {
-                    result += &s.to_string();
+                    match s {
+                        AstNode::AstAssignment(_, _) => {
+                            result += &s.to_string();
+                            result += ";";
+                        }
+                        _ => {
+                            result += &s.to_string();
+                        }
+                    }
+                    result += "\n";
                 }
             }
             AstNode::AstAssignment(id, expr) => {
                 result += &format!(
-                    "{} = {};\n",
+                    "{} = {}",
                     &id.to_string().as_str(),
                     &expr.to_string().as_str()
                 );
@@ -121,12 +125,12 @@ impl AstNode {
                 );
                 let else_print = statements_else.to_string();
                 if else_print.len() > 0 {
-                    result += &format!("}} else {{\n{}}}\n", else_print);
+                    result += &format!("}} else {{\n{}}}", else_print);
                 }
             }
             AstNode::AstFor(decl, expr, ass, statements) => {
                 result += &format!(
-                    "for({};{};{}){{\n{}}}\n",
+                    "for({} {}; {}){{\n{}}}",
                     &decl.to_string().as_str(),
                     &expr.to_string().as_str(),
                     &ass.to_string().as_str(),
@@ -136,7 +140,7 @@ impl AstNode {
 
             AstNode::AstDecl(decl, expr, ass) => {
                 result += &format!(
-                    "{} {} = {};\n",
+                    "{} {} = {};",
                     &decl.tk.to_string().as_str(),
                     &expr.to_string().as_str(),
                     &ass.to_string().as_str()
@@ -144,21 +148,23 @@ impl AstNode {
             }
             AstNode::AstWhile(expr, statements) => {
                 result += &format!(
-                    "while({}){{\n{}\n}}\n",
+                    "while({}){{\n{}}}",
                     &expr.to_string().as_str(),
                     &statements.to_string().as_str()
                 );
             }
-            AstNode::AstFlow(kw, expr) => {
-                result += &format!(
-                    "{} {};\n",
-                    kw.tk.to_string().as_str(),
-                    expr.to_string().as_str()
-                );
-            }
-            AstNode::AstExpression(expr) => {
-                result += &format!("({})", expr.to_string().as_str());
-            }
+            AstNode::AstFlow(kw, expr) => match **expr {
+                AstNode::AstNull => {
+                    result += &format!("{};", kw.tk.to_string().as_str(),);
+                }
+                _ => {
+                    result += &format!(
+                        "{} {};",
+                        kw.tk.to_string().as_str(),
+                        expr.to_string().as_str()
+                    );
+                }
+            },
             AstNode::AstExpressionUnary(tk, expr) => {
                 result += &format!(
                     "({}{})",
