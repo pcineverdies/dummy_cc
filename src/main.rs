@@ -14,5 +14,11 @@ fn main() {
         return;
     }
     let mut p = Parser::new(tokens.unwrap(), file_name.clone());
-    p.parse();
+    let ast_wrapped = p.parse();
+    if ast_wrapped.is_none() {
+        return;
+    }
+    let ast = ast_wrapped.unwrap();
+    println!("{:#?}", ast);
+    println!("{}", ast.to_string());
 }

@@ -45,7 +45,7 @@ impl Parser {
     /// Parser::get_current
     ///
     /// Get the current token under exam
-    fn get_current(&mut self) -> Tk {
+    fn get_current(&self) -> Tk {
         return self.token_list[self.current_position].clone().tk;
     }
 
@@ -71,18 +71,16 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) {
+    pub fn parse(&mut self) -> Option<AstNode> {
         debug_println!("-> parse");
 
         match self.statement_list() {
             Match(node) => {
                 if self.get_current() != Tk::EOF {
                     self.parser_error("EOF");
+                    return None;
                 } else {
-                    debug_println!("{:#?}", node);
-                    debug_println!("\x1b[92mParsing succesfull\x1b[0m");
-                    debug_println!("{}", node.to_string());
-                    return;
+                    return Some(node);
                 }
             }
             _ => {
@@ -90,6 +88,7 @@ impl Parser {
                     "\x1b[91mFailed parsing with {} errors\x1b[0m",
                     self.errors_counter
                 );
+                return None;
             }
         }
     }
@@ -518,26 +517,29 @@ impl Parser {
         {
             let token = self.get_current_token();
             self.advance();
-            return match self.expr() {
-                Match(node) => Match(AstNode::new_ast_binary(&token, &AstNode::new_null(), &node)),
+            return match self.comparison() {
+                Match(node_unary) => match self.comparison_star() {
+                    Match(binary_node) => {
+                        if let AstNode::AstExpressionBinary(token_ext, null, node2) = binary_node {
+                            return Match(AstNode::new_ast_binary(
+                                &token,
+                                &null,
+                                &AstNode::new_ast_binary(&token_ext, &node_unary, &node2),
+                            ));
+                        }
+                        return Fail;
+                    }
+                    Unmatch => Match(AstNode::new_ast_binary(
+                        &token,
+                        &AstNode::new_null(),
+                        &node_unary,
+                    )),
+                    Fail => Fail,
+                },
+                Unmatch => Unmatch,
                 _ => Fail,
             };
-        } else if self.get_current() == Tk::Bracket(Bracket::RBracket)
-            || self.get_current() == Tk::Semicolon
-            || self.get_current() == Tk::Operator(Operator::EqualCompare)
-            || self.get_current() == Tk::Operator(Operator::DiffCompare)
-            || self.get_current() == Tk::Operator(Operator::LTCompare)
-            || self.get_current() == Tk::Operator(Operator::GTCompare)
-            || self.get_current() == Tk::Operator(Operator::LECompare)
-            || self.get_current() == Tk::Operator(Operator::GECompare)
-            || self.get_current() == Tk::Operator(Operator::Xor)
-            || self.get_current() == Tk::Operator(Operator::Or)
-            || self.get_current() == Tk::Operator(Operator::And)
-            || self.get_current() == Tk::Operator(Operator::Minus)
-            || self.get_current() == Tk::Operator(Operator::Plus)
-            || self.get_current() == Tk::Operator(Operator::Slash)
-            || self.get_current() == Tk::Operator(Operator::Asterisk)
-        {
+        } else if self.is_expression_unmatch() {
             return Unmatch;
         } else {
             return self.parser_error("");
@@ -580,26 +582,29 @@ impl Parser {
         {
             let token = self.get_current_token();
             self.advance();
-            return match self.expr() {
-                Match(node) => Match(AstNode::new_ast_binary(&token, &AstNode::new_null(), &node)),
+            return match self.term() {
+                Match(node_unary) => match self.comparison_star() {
+                    Match(binary_node) => {
+                        if let AstNode::AstExpressionBinary(token_ext, null, node2) = binary_node {
+                            return Match(AstNode::new_ast_binary(
+                                &token,
+                                &null,
+                                &AstNode::new_ast_binary(&token_ext, &node_unary, &node2),
+                            ));
+                        }
+                        return Fail;
+                    }
+                    Unmatch => Match(AstNode::new_ast_binary(
+                        &token,
+                        &AstNode::new_null(),
+                        &node_unary,
+                    )),
+                    Fail => Fail,
+                },
+                Unmatch => Unmatch,
                 _ => Fail,
             };
-        } else if self.get_current() == Tk::Bracket(Bracket::RBracket)
-            || self.get_current() == Tk::Semicolon
-            || self.get_current() == Tk::Operator(Operator::EqualCompare)
-            || self.get_current() == Tk::Operator(Operator::DiffCompare)
-            || self.get_current() == Tk::Operator(Operator::LTCompare)
-            || self.get_current() == Tk::Operator(Operator::GTCompare)
-            || self.get_current() == Tk::Operator(Operator::LECompare)
-            || self.get_current() == Tk::Operator(Operator::GECompare)
-            || self.get_current() == Tk::Operator(Operator::Xor)
-            || self.get_current() == Tk::Operator(Operator::Or)
-            || self.get_current() == Tk::Operator(Operator::And)
-            || self.get_current() == Tk::Operator(Operator::Minus)
-            || self.get_current() == Tk::Operator(Operator::Plus)
-            || self.get_current() == Tk::Operator(Operator::Slash)
-            || self.get_current() == Tk::Operator(Operator::Asterisk)
-        {
+        } else if self.is_expression_unmatch() {
             return Unmatch;
         } else {
             return self.parser_error("");
@@ -643,26 +648,29 @@ impl Parser {
         {
             let token = self.get_current_token();
             self.advance();
-            return match self.expr() {
-                Match(node) => Match(AstNode::new_ast_binary(&token, &AstNode::new_null(), &node)),
+            return match self.factor() {
+                Match(node_unary) => match self.term_star() {
+                    Match(binary_node) => {
+                        if let AstNode::AstExpressionBinary(token_ext, null, node2) = binary_node {
+                            return Match(AstNode::new_ast_binary(
+                                &token,
+                                &null,
+                                &AstNode::new_ast_binary(&token_ext, &node_unary, &node2),
+                            ));
+                        }
+                        return Fail;
+                    }
+                    Unmatch => Match(AstNode::new_ast_binary(
+                        &token,
+                        &AstNode::new_null(),
+                        &node_unary,
+                    )),
+                    Fail => Fail,
+                },
+                Unmatch => Unmatch,
                 _ => Fail,
             };
-        } else if self.get_current() == Tk::Bracket(Bracket::RBracket)
-            || self.get_current() == Tk::Semicolon
-            || self.get_current() == Tk::Operator(Operator::EqualCompare)
-            || self.get_current() == Tk::Operator(Operator::DiffCompare)
-            || self.get_current() == Tk::Operator(Operator::LTCompare)
-            || self.get_current() == Tk::Operator(Operator::GTCompare)
-            || self.get_current() == Tk::Operator(Operator::LECompare)
-            || self.get_current() == Tk::Operator(Operator::GECompare)
-            || self.get_current() == Tk::Operator(Operator::Xor)
-            || self.get_current() == Tk::Operator(Operator::Or)
-            || self.get_current() == Tk::Operator(Operator::And)
-            || self.get_current() == Tk::Operator(Operator::Minus)
-            || self.get_current() == Tk::Operator(Operator::Plus)
-            || self.get_current() == Tk::Operator(Operator::Slash)
-            || self.get_current() == Tk::Operator(Operator::Asterisk)
-        {
+        } else if self.is_expression_unmatch() {
             return Unmatch;
         } else {
             return self.parser_error("");
@@ -672,16 +680,13 @@ impl Parser {
     fn factor(&mut self) -> ParserResult {
         debug_println!("-> factor");
         let unary_result = self.unary();
+
         match unary_result {
             Match(node) => {
                 let factor_star_result = self.factor_star();
                 match factor_star_result {
-                    Fail => {
-                        return Fail;
-                    }
-                    Unmatch => {
-                        return Match(node);
-                    }
+                    Fail => Fail,
+                    Unmatch => Match(node),
                     Match(binary_node) => {
                         if let AstNode::AstExpressionBinary(token, _, node2) = binary_node {
                             return Match(AstNode::new_ast_binary(&token, &node, &node2));
@@ -690,9 +695,7 @@ impl Parser {
                     }
                 }
             }
-            _ => {
-                return Fail;
-            }
+            _ => Fail
         }
     }
 
@@ -705,26 +708,29 @@ impl Parser {
         {
             let token = self.get_current_token();
             self.advance();
-            return match self.expr() {
-                Match(node) => Match(AstNode::new_ast_binary(&token, &AstNode::new_null(), &node)),
+            return match self.unary() {
+                Match(node_unary) => match self.factor_star() {
+                    Match(binary_node) => {
+                        if let AstNode::AstExpressionBinary(token_ext, null, node2) = binary_node {
+                            return Match(AstNode::new_ast_binary(
+                                &token,
+                                &null,
+                                &AstNode::new_ast_binary(&token_ext, &node_unary, &node2),
+                            ));
+                        }
+                        return Fail;
+                    }
+                    Unmatch => Match(AstNode::new_ast_binary(
+                        &token,
+                        &AstNode::new_null(),
+                        &node_unary,
+                    )),
+                    Fail => Fail,
+                },
+                Unmatch => Unmatch,
                 _ => Fail,
             };
-        } else if self.get_current() == Tk::Bracket(Bracket::RBracket)
-            || self.get_current() == Tk::Semicolon
-            || self.get_current() == Tk::Operator(Operator::EqualCompare)
-            || self.get_current() == Tk::Operator(Operator::DiffCompare)
-            || self.get_current() == Tk::Operator(Operator::LTCompare)
-            || self.get_current() == Tk::Operator(Operator::GTCompare)
-            || self.get_current() == Tk::Operator(Operator::LECompare)
-            || self.get_current() == Tk::Operator(Operator::GECompare)
-            || self.get_current() == Tk::Operator(Operator::Xor)
-            || self.get_current() == Tk::Operator(Operator::Or)
-            || self.get_current() == Tk::Operator(Operator::And)
-            || self.get_current() == Tk::Operator(Operator::Minus)
-            || self.get_current() == Tk::Operator(Operator::Plus)
-            || self.get_current() == Tk::Operator(Operator::Slash)
-            || self.get_current() == Tk::Operator(Operator::Asterisk)
-        {
+        } else if self.is_expression_unmatch() {
             return Unmatch;
         } else {
             return self.parser_error("");
@@ -740,7 +746,7 @@ impl Parser {
         {
             let token = self.get_current_token();
             self.advance();
-            return match self.expr() {
+            return match self.primary() {
                 Match(node) => return Match(AstNode::new_ast_unary(&token, &node)),
                 _ => Fail,
             };
@@ -823,16 +829,13 @@ impl Parser {
         }
 
         eprintln!(
-            "{}\t| {}",
+            "{}\t| {}\t| ",
             line_number,
             file_lines[line_number as usize - 1]
         );
-        eprint!("\t| ");
 
-        if character_number >= 4 {
-            for _ in 0..character_number - 4 {
-                eprint!(" ");
-            }
+        for _ in 0..character_number - 4 {
+            eprint!(" ");
         }
 
         for _ in 0..3.min(character_number - 1) {
@@ -852,5 +855,28 @@ impl Parser {
         }
 
         result
+    }
+
+    fn is_expression_unmatch(&self) -> bool {
+        if self.get_current() == Tk::Bracket(Bracket::RBracket)
+            || self.get_current() == Tk::Semicolon
+            || self.get_current() == Tk::Operator(Operator::EqualCompare)
+            || self.get_current() == Tk::Operator(Operator::DiffCompare)
+            || self.get_current() == Tk::Operator(Operator::LTCompare)
+            || self.get_current() == Tk::Operator(Operator::GTCompare)
+            || self.get_current() == Tk::Operator(Operator::LECompare)
+            || self.get_current() == Tk::Operator(Operator::GECompare)
+            || self.get_current() == Tk::Operator(Operator::Xor)
+            || self.get_current() == Tk::Operator(Operator::Or)
+            || self.get_current() == Tk::Operator(Operator::And)
+            || self.get_current() == Tk::Operator(Operator::Minus)
+            || self.get_current() == Tk::Operator(Operator::Plus)
+            || self.get_current() == Tk::Operator(Operator::Slash)
+            || self.get_current() == Tk::Operator(Operator::Asterisk)
+        {
+            return true;
+        }
+
+        return false;
     }
 }
