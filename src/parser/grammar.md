@@ -74,7 +74,7 @@
 
 `Factor_Star -> / Unary Factor_Star | * Unary Factor_Star | % Unary Factor_Star | ε`
 
-`Unary -> Primary | + Primary | - Primary | ! Primary | ~ Primary`
+`Unary -> Primary | + Unary | - Unary | ! Unary | ~ Unary`
 
 `Primary -> ( Expr ) | numerical | identifier | true | false | char`
 

@@ -251,6 +251,19 @@ impl Tk {
             Tk::ERROR => "ERROR".to_string(),
         };
     }
+
+    pub fn is_type(self) -> bool {
+        if self == Tk::Keyword(Keyword::Char)
+            || self == Tk::Keyword(Keyword::Bool)
+            || self == Tk::Keyword(Keyword::Int)
+            || self == Tk::Keyword(Keyword::U8)
+            || self == Tk::Keyword(Keyword::U16)
+            || self == Tk::Keyword(Keyword::U32)
+        {
+            return true;
+        }
+        return false;
+    }
 }
 
 impl Lexer {
