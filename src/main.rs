@@ -20,5 +20,5 @@ fn main() {
     }
     let ast = ast_wrapped.unwrap();
     println!("{:#?}", ast);
-    println!("{}", ast.to_string());
+    println!("{}", ast.to_string(0));
 }

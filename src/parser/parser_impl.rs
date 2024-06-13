@@ -480,260 +480,144 @@ impl Parser {
 
     fn expr(&mut self) -> ParserResult {
         debug_println!("-> expr");
-        return self.equality();
-    }
 
-    fn equality(&mut self) -> ParserResult {
-        debug_println!("-> equality");
-        let unary_result = self.comparison();
-        match unary_result {
+        let mut op_stack: Vec<Token> = Vec::new();
+        let mut node_stack: Vec<AstNode> = Vec::new();
+
+        match self.comparison() {
             Match(node) => {
-                let binary_result = self.equality_star();
-                match binary_result {
-                    Fail => {
-                        return Fail;
-                    }
-                    Unmatch => {
-                        return Match(node);
-                    }
-                    Match(binary_node) => {
-                        if let AstNode::AstExpressionBinary(token, _, node2) = binary_node {
-                            return Match(AstNode::new_ast_binary(&token, &node, &node2));
-                        }
-                        return Fail;
+                node_stack.push(node);
+                while self.get_current() == Tk::Operator(Operator::EqualCompare)
+                    || self.get_current() == Tk::Operator(Operator::DiffCompare)
+                {
+                    op_stack.push(self.get_current_token());
+                    self.advance();
+                    match self.comparison() {
+                        Match(node) => node_stack.push(node),
+                        _ => return Fail,
                     }
                 }
+                let mut final_node = node_stack.remove(0);
+                while node_stack.len() != 0 {
+                    let op = op_stack.remove(0);
+                    let new_operand = node_stack.remove(0);
+                    final_node = AstNode::new_ast_binary(&op, &final_node, &new_operand);
+                }
+                if !self.is_expression_unmatch() {
+                    return Fail;
+                }
+                Match(final_node)
             }
-            _ => {
-                return Fail;
-            }
-        }
-    }
-
-    fn equality_star(&mut self) -> ParserResult {
-        debug_println!("-> equality_star");
-        if self.get_current() == Tk::Operator(Operator::EqualCompare)
-            || self.get_current() == Tk::Operator(Operator::DiffCompare)
-        {
-            let token = self.get_current_token();
-            self.advance();
-            return match self.comparison() {
-                Match(node_unary) => match self.comparison_star() {
-                    Match(binary_node) => {
-                        if let AstNode::AstExpressionBinary(token_ext, null, node2) = binary_node {
-                            return Match(AstNode::new_ast_binary(
-                                &token,
-                                &null,
-                                &AstNode::new_ast_binary(&token_ext, &node_unary, &node2),
-                            ));
-                        }
-                        return Fail;
-                    }
-                    Unmatch => Match(AstNode::new_ast_binary(
-                        &token,
-                        &AstNode::new_null(),
-                        &node_unary,
-                    )),
-                    Fail => Fail,
-                },
-                Unmatch => Unmatch,
-                _ => Fail,
-            };
-        } else if self.is_expression_unmatch() {
-            return Unmatch;
-        } else {
-            return self.parser_error("");
+            _ => Fail,
         }
     }
 
     fn comparison(&mut self) -> ParserResult {
         debug_println!("-> comparison");
-        let unary_result = self.term();
-        match unary_result {
+
+        let mut op_stack: Vec<Token> = Vec::new();
+        let mut node_stack: Vec<AstNode> = Vec::new();
+
+        match self.term() {
             Match(node) => {
-                let binary_result = self.comparison_star();
-                match binary_result {
-                    Fail => {
-                        return Fail;
-                    }
-                    Unmatch => {
-                        return Match(node);
-                    }
-                    Match(binary_node) => {
-                        if let AstNode::AstExpressionBinary(token, _, node2) = binary_node {
-                            return Match(AstNode::new_ast_binary(&token, &node, &node2));
-                        }
-                        return Fail;
+                node_stack.push(node);
+                while self.get_current() == Tk::Operator(Operator::LTCompare)
+                    || self.get_current() == Tk::Operator(Operator::GTCompare)
+                    || self.get_current() == Tk::Operator(Operator::LECompare)
+                    || self.get_current() == Tk::Operator(Operator::GECompare)
+                {
+                    op_stack.push(self.get_current_token());
+                    self.advance();
+                    match self.term() {
+                        Match(node) => node_stack.push(node),
+                        _ => return Fail,
                     }
                 }
+                let mut final_node = node_stack.remove(0);
+                while node_stack.len() != 0 {
+                    let op = op_stack.remove(0);
+                    let new_operand = node_stack.remove(0);
+                    final_node = AstNode::new_ast_binary(&op, &final_node, &new_operand);
+                }
+                if !self.is_expression_unmatch() {
+                    return Fail;
+                }
+                Match(final_node)
             }
-            _ => {
-                return Fail;
-            }
-        }
-    }
-
-    fn comparison_star(&mut self) -> ParserResult {
-        debug_println!("-> comparison_star");
-        if self.get_current() == Tk::Operator(Operator::LTCompare)
-            || self.get_current() == Tk::Operator(Operator::GTCompare)
-            || self.get_current() == Tk::Operator(Operator::GECompare)
-            || self.get_current() == Tk::Operator(Operator::LECompare)
-        {
-            let token = self.get_current_token();
-            self.advance();
-            return match self.term() {
-                Match(node_unary) => match self.comparison_star() {
-                    Match(binary_node) => {
-                        if let AstNode::AstExpressionBinary(token_ext, null, node2) = binary_node {
-                            return Match(AstNode::new_ast_binary(
-                                &token,
-                                &null,
-                                &AstNode::new_ast_binary(&token_ext, &node_unary, &node2),
-                            ));
-                        }
-                        return Fail;
-                    }
-                    Unmatch => Match(AstNode::new_ast_binary(
-                        &token,
-                        &AstNode::new_null(),
-                        &node_unary,
-                    )),
-                    Fail => Fail,
-                },
-                Unmatch => Unmatch,
-                _ => Fail,
-            };
-        } else if self.is_expression_unmatch() {
-            return Unmatch;
-        } else {
-            return self.parser_error("");
+            _ => Fail,
         }
     }
 
     fn term(&mut self) -> ParserResult {
         debug_println!("-> term");
-        let unary_result = self.factor();
-        match unary_result {
+
+        let mut op_stack: Vec<Token> = Vec::new();
+        let mut node_stack: Vec<AstNode> = Vec::new();
+
+        match self.factor() {
             Match(node) => {
-                let binary_result = self.term_star();
-                match binary_result {
-                    Fail => {
-                        return Fail;
-                    }
-                    Unmatch => {
-                        return Match(node);
-                    }
-                    Match(binary_node) => {
-                        if let AstNode::AstExpressionBinary(token, _, node2) = binary_node {
-                            return Match(AstNode::new_ast_binary(&token, &node, &node2));
-                        }
-                        return Fail;
+                node_stack.push(node);
+                while self.get_current() == Tk::Operator(Operator::Plus)
+                    || self.get_current() == Tk::Operator(Operator::Minus)
+                    || self.get_current() == Tk::Operator(Operator::Xor)
+                    || self.get_current() == Tk::Operator(Operator::And)
+                    || self.get_current() == Tk::Operator(Operator::Or)
+                {
+                    op_stack.push(self.get_current_token());
+                    self.advance();
+                    match self.factor() {
+                        Match(node) => node_stack.push(node),
+                        _ => return Fail,
                     }
                 }
+                let mut final_node = node_stack.remove(0);
+                while node_stack.len() != 0 {
+                    let op = op_stack.remove(0);
+                    let new_operand = node_stack.remove(0);
+                    final_node = AstNode::new_ast_binary(&op, &final_node, &new_operand);
+                }
+                if !self.is_expression_unmatch() {
+                    return Fail;
+                }
+                Match(final_node)
             }
-            _ => {
-                return Fail;
-            }
-        }
-    }
-
-    fn term_star(&mut self) -> ParserResult {
-        debug_println!("-> term_star");
-        if self.get_current() == Tk::Operator(Operator::Plus)
-            || self.get_current() == Tk::Operator(Operator::Minus)
-            || self.get_current() == Tk::Operator(Operator::Or)
-            || self.get_current() == Tk::Operator(Operator::And)
-            || self.get_current() == Tk::Operator(Operator::Xor)
-        {
-            let token = self.get_current_token();
-            self.advance();
-            return match self.factor() {
-                Match(node_unary) => match self.term_star() {
-                    Match(binary_node) => {
-                        if let AstNode::AstExpressionBinary(token_ext, null, node2) = binary_node {
-                            return Match(AstNode::new_ast_binary(
-                                &token,
-                                &null,
-                                &AstNode::new_ast_binary(&token_ext, &node_unary, &node2),
-                            ));
-                        }
-                        return Fail;
-                    }
-                    Unmatch => Match(AstNode::new_ast_binary(
-                        &token,
-                        &AstNode::new_null(),
-                        &node_unary,
-                    )),
-                    Fail => Fail,
-                },
-                Unmatch => Unmatch,
-                _ => Fail,
-            };
-        } else if self.is_expression_unmatch() {
-            return Unmatch;
-        } else {
-            return self.parser_error("");
+            _ => Fail,
         }
     }
 
     fn factor(&mut self) -> ParserResult {
         debug_println!("-> factor");
-        let unary_result = self.unary();
 
-        match unary_result {
+        let mut op_stack: Vec<Token> = Vec::new();
+        let mut node_stack: Vec<AstNode> = Vec::new();
+
+        match self.unary() {
             Match(node) => {
-                let factor_star_result = self.factor_star();
-                match factor_star_result {
-                    Fail => Fail,
-                    Unmatch => Match(node),
-                    Match(binary_node) => {
-                        if let AstNode::AstExpressionBinary(token, _, node2) = binary_node {
-                            return Match(AstNode::new_ast_binary(&token, &node, &node2));
-                        }
-                        return Fail;
+                node_stack.push(node);
+                while self.get_current() == Tk::Operator(Operator::Module)
+                    || self.get_current() == Tk::Operator(Operator::Slash)
+                    || self.get_current() == Tk::Operator(Operator::Module)
+                    || self.get_current() == Tk::Operator(Operator::Asterisk)
+                {
+                    op_stack.push(self.get_current_token());
+                    self.advance();
+                    match self.unary() {
+                        Match(node) => node_stack.push(node),
+                        _ => return Fail,
                     }
                 }
+                let mut final_node = node_stack.remove(0);
+                while node_stack.len() != 0 {
+                    let op = op_stack.remove(0);
+                    let new_operand = node_stack.remove(0);
+                    final_node = AstNode::new_ast_binary(&op, &final_node, &new_operand);
+                }
+                if !self.is_expression_unmatch() {
+                    return Fail;
+                }
+                Match(final_node)
             }
-            _ => Fail
-        }
-    }
-
-    fn factor_star(&mut self) -> ParserResult {
-        debug_println!("-> factor_star");
-        if self.get_current() == Tk::Operator(Operator::Module)
-            || self.get_current() == Tk::Operator(Operator::Slash)
-            || self.get_current() == Tk::Operator(Operator::Module)
-            || self.get_current() == Tk::Operator(Operator::Asterisk)
-        {
-            let token = self.get_current_token();
-            self.advance();
-            return match self.unary() {
-                Match(node_unary) => match self.factor_star() {
-                    Match(binary_node) => {
-                        if let AstNode::AstExpressionBinary(token_ext, null, node2) = binary_node {
-                            return Match(AstNode::new_ast_binary(
-                                &token,
-                                &null,
-                                &AstNode::new_ast_binary(&token_ext, &node_unary, &node2),
-                            ));
-                        }
-                        return Fail;
-                    }
-                    Unmatch => Match(AstNode::new_ast_binary(
-                        &token,
-                        &AstNode::new_null(),
-                        &node_unary,
-                    )),
-                    Fail => Fail,
-                },
-                Unmatch => Unmatch,
-                _ => Fail,
-            };
-        } else if self.is_expression_unmatch() {
-            return Unmatch;
-        } else {
-            return self.parser_error("");
+            _ => Fail,
         }
     }
 
@@ -828,14 +712,16 @@ impl Parser {
             return Fail;
         }
 
-        eprintln!(
-            "{}\t| {}\t| ",
+        eprint!(
+            "{}\t| {}\n\t| ",
             line_number,
             file_lines[line_number as usize - 1]
         );
 
-        for _ in 0..character_number - 4 {
-            eprint!(" ");
+        if character_number > 3 {
+            for _ in 0..character_number - 4 {
+                eprint!(" ");
+            }
         }
 
         for _ in 0..3.min(character_number - 1) {
