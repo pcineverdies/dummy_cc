@@ -73,23 +73,21 @@ mod test {
         let if_decl1 = AstNode::new_ast_if(&ast_expr3, &ast_block, &ast_block);
         let if_decl2 = AstNode::new_ast_if(&ast_expr8, &if_decl1, &ast_block);
 
-        println!("{}", if_decl2.to_string());
+        println!("{}", if_decl2.to_string(0));
 
         assert_eq!(
-            if_decl2.to_string(),
+            if_decl2.to_string(0),
             "if(((-b) + 6)){
-if((a + b)){
-int a = 3;
-int a = 3;
-} else {
-int a = 3;
-int a = 3;
-}
-} else {
-int a = 3;
-int a = 3;
-}
-"
+  if((a + b)){
+    int a = 3;
+    int a = 3;
+  } else {
+    int a = 3;
+    int a = 3;
+  }} else {
+  int a = 3;
+  int a = 3;
+}"
         );
     }
 }
