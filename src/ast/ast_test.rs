@@ -8,32 +8,37 @@ mod test {
         let ast_expr1 = AstNode::new_ast_identifer(&Token {
             tk: Tk::Identifier(String::from("a")),
             line_number: 0,
-            character_number: 0,
+            last_character: 0,
+            first_character: 0,
         });
 
         let ast_expr4 = AstNode::new_ast_identifer(&Token {
             tk: Tk::Identifier(String::from("b")),
             line_number: 0,
-            character_number: 0,
+            last_character: 0,
+            first_character: 0,
         });
 
         let ast_expr2 = AstNode::new_ast_numerical(&Token {
             tk: Tk::IntegerLiteral(3),
             line_number: 0,
-            character_number: 0,
+            last_character: 0,
+            first_character: 0,
         });
 
         let ast_expr5 = AstNode::new_ast_numerical(&Token {
             tk: Tk::IntegerLiteral(6),
             line_number: 0,
-            character_number: 0,
+            last_character: 0,
+            first_character: 0,
         });
 
         let ast_expr3 = AstNode::new_ast_binary(
             &Token {
                 tk: Tk::Operator(Operator::Plus),
                 line_number: 0,
-                character_number: 0,
+                last_character: 0,
+                first_character: 0,
             },
             &ast_expr1,
             &ast_expr4,
@@ -43,7 +48,8 @@ mod test {
             &Token {
                 tk: Tk::Operator(Operator::Minus),
                 line_number: 0,
-                character_number: 0,
+                last_character: 0,
+                first_character: 0,
             },
             &ast_expr4,
         );
@@ -52,7 +58,8 @@ mod test {
             &Token {
                 tk: Tk::Operator(Operator::Plus),
                 line_number: 0,
-                character_number: 0,
+                last_character: 0,
+                first_character: 0,
             },
             &ast_expr7,
             &ast_expr5,
@@ -62,7 +69,8 @@ mod test {
             &Token {
                 tk: Tk::Keyword(Keyword::Int),
                 line_number: 0,
-                character_number: 0,
+                last_character: 0,
+                first_character: 0,
             },
             &ast_expr1,
             &ast_expr2,

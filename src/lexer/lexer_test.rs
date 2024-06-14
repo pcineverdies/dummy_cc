@@ -21,37 +21,44 @@ mod test {
                 Token {
                     tk: Tk::Keyword(Keyword::Int),
                     line_number: 1,
-                    character_number: 3,
+                    last_character: 3,
+                    first_character: 1
                 },
                 Token {
                     tk: Tk::Keyword(Keyword::Main),
                     line_number: 3,
-                    character_number: 16,
+                    last_character: 16,
+                    first_character: 13,
                 },
                 Token {
                     tk: Tk::Bracket(Bracket::LBracket),
                     line_number: 4,
-                    character_number: 13,
+                    last_character: 13,
+                    first_character: 13,
                 },
                 Token {
                     tk: Tk::Bracket(Bracket::RBracket),
                     line_number: 6,
-                    character_number: 13,
+                    first_character: 13,
+                    last_character: 13,
                 },
                 Token {
                     tk: Tk::Bracket(Bracket::LCurly),
                     line_number: 6,
-                    character_number: 14,
+                    last_character: 14,
+                    first_character: 14,
                 },
                 Token {
                     tk: Tk::Bracket(Bracket::RCurly),
                     line_number: 6,
-                    character_number: 15,
+                    last_character: 15,
+                    first_character: 15,
                 },
                 Token {
                     tk: Tk::EOF,
                     line_number: 7,
-                    character_number: 2,
+                    last_character: 1,
+                    first_character: 1,
                 },
             ]
         );
@@ -73,52 +80,62 @@ mod test {
                 Token {
                     tk: Tk::Operator(Operator::EqualCompare),
                     line_number: 1,
-                    character_number: 2,
+                    first_character: 1,
+                    last_character: 2,
                 },
                 Token {
                     tk: Tk::Operator(Operator::Plus),
                     line_number: 1,
-                    character_number: 3,
+                    first_character: 3,
+                    last_character: 3,
                 },
                 Token {
                     tk: Tk::Operator(Operator::Minus),
                     line_number: 1,
-                    character_number: 4,
+                    first_character: 4,
+                    last_character: 4,
                 },
                 Token {
                     tk: Tk::Operator(Operator::Slash),
                     line_number: 1,
-                    character_number: 5,
+                    first_character: 5,
+                    last_character: 5,
                 },
                 Token {
                     tk: Tk::Operator(Operator::GECompare),
                     line_number: 1,
-                    character_number: 7,
+                    first_character: 6,
+                    last_character: 7,
                 },
                 Token {
                     tk: Tk::Identifier("k".to_string()),
                     line_number: 1,
-                    character_number: 8,
+                    last_character: 8,
+                    first_character: 8,
                 },
                 Token {
                     tk: Tk::Operator(Operator::And),
                     line_number: 1,
-                    character_number: 9,
+                    last_character: 9,
+                    first_character: 9,
                 },
                 Token {
                     tk: Tk::Operator(Operator::Xor),
                     line_number: 1,
-                    character_number: 10,
+                    last_character: 10,
+                    first_character: 10,
                 },
                 Token {
                     tk: Tk::Operator(Operator::DiffCompare),
                     line_number: 1,
-                    character_number: 12,
+                    last_character: 12,
+                    first_character: 11,
                 },
                 Token {
                     tk: Tk::EOF,
                     line_number: 2,
-                    character_number: 2,
+                    last_character: 1,
+                    first_character: 1,
                 },
             ]
         );
@@ -180,17 +197,20 @@ mod test {
                 Token {
                     tk: Tk::Char('d'),
                     line_number: 2,
-                    character_number: 7,
+                    last_character: 7,
+                    first_character: 5,
                 },
                 Token {
                     tk: Tk::Char('e'),
                     line_number: 3,
-                    character_number: 7,
+                    last_character: 7,
+                    first_character: 5,
                 },
                 Token {
                     tk: Tk::EOF,
                     line_number: 6,
-                    character_number: 2,
+                    last_character: 1,
+                    first_character: 1,
                 },
             ]
         );

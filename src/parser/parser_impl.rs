@@ -464,8 +464,14 @@ impl Parser {
     fn assignment_statement(&mut self) -> ParserResult {
         debug_println!("-> assignment_statement");
         match self.get_current() {
-            Tk::Identifier(_) => {
+            Tk::Identifier(id_string) => {
                 let id_node = AstNode::new_ast_identifer(&self.get_current_token());
+                match self.resolution.search_identifier(&id_string) {
+                    Ok(_) => {}
+                    Err(expected) => {
+                        return self.parser_error(&id_string, ScopeError(expected));
+                    }
+                }
                 self.advance();
                 if self.get_current() != Tk::Operator(Operator::Assign) {
                     return self.parser_error("=", TokenError);
@@ -721,12 +727,13 @@ impl Parser {
     fn parser_error(&mut self, expected: &str, error: ParserErrorType) -> ParserResult {
         self.errors_counter += 1;
         let line_number = self.token_list[self.current_position].line_number;
-        let character_number = self.token_list[self.current_position].character_number;
+        let last_character = self.token_list[self.current_position].last_character;
+        let first_character = self.token_list[self.current_position].first_character;
         let file_lines = self.read_lines(&self.file_name);
 
         eprint!(
             "\x1b[34m{}:{}:{}: \x1b[0m",
-            self.file_name, line_number, character_number
+            self.file_name, line_number, first_character
         );
 
         match error {
@@ -756,9 +763,6 @@ impl Parser {
                 }
             }
         }
-        if self.errors_counter > 1 {
-            eprintln!("(this error might be a propagation of the previous ones)");
-        }
         if line_number as usize > file_lines.len() {
             return Fail;
         }
@@ -769,17 +773,16 @@ impl Parser {
             file_lines[line_number as usize - 1]
         );
 
-        if character_number > 3 {
-            for _ in 0..character_number - 4 {
+        for i in 0..last_character {
+            if i < first_character - 1 {
                 eprint!(" ");
+            } else if i == first_character - 1 {
+                eprint!("\x1b[91m^\x1b[0m");
+            } else {
+                eprint!("\x1b[91m~\x1b[0m");
             }
         }
-
-        for _ in 0..3.min(character_number - 1) {
-            eprint!("\x1b[91m~\x1b[0m");
-        }
-
-        eprintln!("\x1b[91m^~~~\x1b[0m");
+        eprintln!("");
 
         return Fail;
     }

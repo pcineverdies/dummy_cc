@@ -171,7 +171,8 @@ pub enum Tk {
 pub struct Token {
     pub tk: Tk,
     pub line_number: u32,
-    pub character_number: u32,
+    pub first_character: u32,
+    pub last_character: u32,
 }
 
 /// struct Lexer
@@ -324,6 +325,9 @@ impl Lexer {
             // Skip all the comments
             self.skip_comments();
 
+            // Since a token is starting, we can mark the initial character
+            let current_first_character = self.current_character_number;
+
             // Get next token
             let token = self.get_next_token();
 
@@ -332,7 +336,8 @@ impl Lexer {
                 self.lexemes_list.push(Token {
                     tk: Tk::ERROR,
                     line_number: self.current_line_number,
-                    character_number: self.current_character_number,
+                    last_character: self.current_character_number,
+                    first_character: current_first_character,
                 });
             // Push the valid token
             } else {
@@ -341,7 +346,8 @@ impl Lexer {
                     self.lexemes_list.push(Token {
                         tk: token_unwrapped,
                         line_number: self.current_line_number,
-                        character_number: self.current_character_number,
+                        last_character: self.current_character_number,
+                        first_character: current_first_character,
                     });
                 }
             }
@@ -353,7 +359,8 @@ impl Lexer {
         self.lexemes_list.push(Token {
             tk: Tk::EOF,
             line_number: self.current_line_number,
-            character_number: self.current_character_number,
+            last_character: self.current_character_number,
+            first_character: self.current_character_number,
         });
 
         // Return the list of tokens
@@ -698,31 +705,26 @@ impl Lexer {
 
         eprint!(
             "\x1b[34m{}:{}:{}: \x1b[0m",
-            self.file_name, line_number, character_number
+            self.file_name, line_number, self.current_first_character
         );
         eprintln!("\x1b[91merror lexer: \x1b[34m{}\x1b[0m", error_str);
-        if self.errors_counter > 1 {
-            eprintln!("(this error might be a propagation of the previous ones)");
-        }
 
-        eprintln!(
-            "{}\t| {}",
+        eprint!(
+            "{}\t| {}\n\t| ",
             line_number,
             file_lines[line_number as usize - 1]
         );
-        eprint!("\t| ");
 
-        if character_number >= 4 {
-            for _ in 0..character_number - 4 {
+        for i in 0..character_number {
+            if i < self.current_first_character - 1 {
                 eprint!(" ");
+            } else if i == self.current_first_character - 1 {
+                eprint!("\x1b[91m^\x1b[0m");
+            } else {
+                eprint!("\x1b[91m~\x1b[0m");
             }
         }
-
-        for _ in 0..3.min(character_number - 1) {
-            eprint!("\x1b[91m~\x1b[0m");
-        }
-
-        eprintln!("\x1b[91m^~~~\x1b[0m");
+        eprintln!("");
     }
 
     fn read_lines(&self, filename: &str) -> Vec<String> {
