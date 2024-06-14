@@ -171,8 +171,8 @@ pub enum Tk {
 pub struct Token {
     pub tk: Tk,
     pub line_number: u32,
-    pub first_character: u32,
     pub last_character: u32,
+    pub first_character: u32,
 }
 
 /// struct Lexer
@@ -189,6 +189,7 @@ pub struct Lexer {
     errors_counter: u32,
     file_name: String,
     is_file: bool,
+    current_first_character: u32,
 }
 
 impl Tk {
@@ -307,6 +308,8 @@ impl Lexer {
             file_name,
             // Handling a file?
             is_file,
+            // First character number of the token under anaylsis
+            current_first_character: 0,
         })
     }
 
@@ -326,8 +329,7 @@ impl Lexer {
             self.skip_comments();
 
             // Since a token is starting, we can mark the initial character
-            let current_first_character = self.current_character_number;
-
+            self.current_first_character = self.current_character_number;
             // Get next token
             let token = self.get_next_token();
 
@@ -337,7 +339,7 @@ impl Lexer {
                     tk: Tk::ERROR,
                     line_number: self.current_line_number,
                     last_character: self.current_character_number,
-                    first_character: current_first_character,
+                    first_character: self.current_first_character,
                 });
             // Push the valid token
             } else {
@@ -347,7 +349,7 @@ impl Lexer {
                         tk: token_unwrapped,
                         line_number: self.current_line_number,
                         last_character: self.current_character_number,
-                        first_character: current_first_character,
+                        first_character: self.current_first_character,
                     });
                 }
             }
@@ -360,7 +362,7 @@ impl Lexer {
             tk: Tk::EOF,
             line_number: self.current_line_number,
             last_character: self.current_character_number,
-            first_character: self.current_character_number,
+            first_character: self.current_first_character,
         });
 
         // Return the list of tokens
@@ -714,6 +716,7 @@ impl Lexer {
             line_number,
             file_lines[line_number as usize - 1]
         );
+        eprint!("\t| ");
 
         for i in 0..character_number {
             if i < self.current_first_character - 1 {
