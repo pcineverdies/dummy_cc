@@ -1,6 +1,6 @@
-use crate::ast::ast_impl::AstNode;
 use crate::lexer::lexer_impl::{Bracket, Keyword, Operator, Tk, Token};
 use crate::parser::resolution::Resolution;
+use std::string::String;
 use std::{fs::read_to_string, process::exit};
 
 macro_rules! debug_println {
@@ -19,19 +19,23 @@ pub struct Parser {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum ParserResult {
-    Match(AstNode),
+    Match,
     Unmatch,
     Fail,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum ParserErrorType {
-    ScopeError(String),
+    ScopeError,
     TokenError,
 }
 
+use Bracket::*;
+use Keyword::*;
+use Operator::*;
 use ParserErrorType::*;
 use ParserResult::*;
+use Tk::*;
 
 impl Parser {
     //! Parser::new
@@ -66,6 +70,14 @@ impl Parser {
         return self.token_list[self.current_position].clone();
     }
 
+    /// Parser::previous
+    ///
+    /// Go to previous token
+    fn previous(&mut self) {
+        self.current_position -= 1;
+        debug_println!("Restoring {:?}", self.get_current());
+    }
+
     /// Parser::advance
     ///
     /// Advance to next token
@@ -81,649 +93,774 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> Option<AstNode> {
+    /// Parser::parse
+    ///
+    /// Parse the list of token provided to the parser during initialization
+    ///
+    /// @return [Option<()>]: return the AST in case of success, None if an error occurred in the
+    /// process
+    pub fn parse(&mut self) -> Option<()> {
         debug_println!("-> parse");
 
-        match self.statement_list() {
-            Match(node) => {
-                if self.get_current() != Tk::EOF {
-                    self.parser_error("EOF", TokenError);
+        match self.expression() {
+            Match => {
+                if self.get_current() != Tk::Semicolon {
+                    self.parser_error("", TokenError);
                     return None;
                 } else if self.errors_counter > 0 {
                     return None;
                 } else {
-                    return Some(node);
+                    return Some(());
                 }
             }
             _ => {
-                eprintln!(
-                    "\x1b[91mFailed parsing with {} errors\x1b[0m",
-                    self.errors_counter
-                );
                 return None;
             }
         }
     }
 
-    fn statement_list(&mut self) -> ParserResult {
-        debug_println!("-> statement_list");
-        let mut statements_vec: Vec<AstNode> = Vec::new();
+    /// Parser::expression
+    ///
+    /// Parse an expression, defined as
+    ///
+    /// Expression ->    Logical_expression
+    ///             |    Unary_expression = Expression
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn expression(&mut self) -> ParserResult {
+        debug_println!("-> expression");
 
-        self.resolution.add_scope();
-
-        loop {
-            match self.statement() {
-                Match(node) => {
-                    if node != AstNode::AstNull {
-                        statements_vec.push(node.clone());
-                    }
-                    match self.get_current() {
-                        Tk::Bracket(Bracket::RCurly) | Tk::EOF => break,
-                        _ => {}
-                    }
-                }
-                Unmatch => {
-                    return Match(AstNode::new_ast_statements(&statements_vec));
-                }
-                Fail => {
-                    self.resolution.remove_scope();
-                    while self.get_current() != Tk::Semicolon
-                        && self.get_current() != Tk::Bracket(Bracket::RCurly)
-                    {
-                        debug_println!("!! Skipping token due to error");
-                        self.advance();
-                    }
+        match self.logical_expression() {
+            Match => return Match,
+            Fail => return Fail,
+            _ => {}
+        }
+        match self.unary_expression() {
+            Match => match self.get_current() {
+                Operator(Assign) => {
                     self.advance();
-                    return self.statement_list();
-                }
-            }
-        }
-        self.resolution.remove_scope();
-        return Match(AstNode::new_ast_statements(&statements_vec));
-    }
-
-    fn statement(&mut self) -> ParserResult {
-        debug_println!("-> statement");
-        match self.variable_declaration() {
-            Match(node) => {
-                if self.get_current() != Tk::Semicolon {
-                    return self.parser_error(";", TokenError);
-                }
-                self.advance();
-                return Match(node);
-            }
-            Fail => return Fail,
-            _ => {}
-        }
-
-        match self.for_statement() {
-            Match(node) => return Match(node),
-            Fail => return Fail,
-            _ => {}
-        }
-
-        match self.flow_statement() {
-            Match(node) => return Match(node),
-            Fail => return Fail,
-            _ => {}
-        }
-
-        match self.if_statement() {
-            Match(node) => return Match(node),
-            Fail => return Fail,
-            _ => {}
-        }
-
-        match self.while_statement() {
-            Match(node) => return Match(node),
-            Fail => return Fail,
-            _ => {}
-        }
-
-        match self.assignment_statement() {
-            Match(node) => {
-                if self.get_current() != Tk::Semicolon {
-                    return self.parser_error(";", TokenError);
-                }
-                self.advance();
-                return Match(node);
-            }
-            Fail => return Fail,
-            _ => {}
-        }
-
-        match self.get_current() {
-            Tk::Semicolon => {
-                self.advance();
-                return Match(AstNode::new_null());
-            }
-            Tk::Identifier(_) => return Unmatch,
-            Tk::Bracket(Bracket::RCurly) => return Unmatch,
-            Tk::EOF => return Unmatch,
-            Tk::Keyword(Keyword::If) => return Unmatch,
-            Tk::Keyword(Keyword::For) => return Unmatch,
-            Tk::Keyword(Keyword::Return) => return Unmatch,
-            Tk::Keyword(Keyword::Continue) => return Unmatch,
-            Tk::Keyword(Keyword::Break) => return Unmatch,
-            Tk::Keyword(Keyword::Char) => return Unmatch,
-            Tk::Keyword(Keyword::Int) => return Unmatch,
-            Tk::Keyword(Keyword::Bool) => return Unmatch,
-            Tk::Keyword(Keyword::U8) => return Unmatch,
-            Tk::Keyword(Keyword::U16) => return Unmatch,
-            Tk::Keyword(Keyword::U32) => return Unmatch,
-            Tk::Keyword(Keyword::While) => return Unmatch,
-            _ => {
-                return self.parser_error("", TokenError);
-            }
-        }
-    }
-
-    fn flow_statement(&mut self) -> ParserResult {
-        match self.get_current() {
-            Tk::Keyword(Keyword::Continue) | Tk::Keyword(Keyword::Break) => {
-                let token = self.get_current_token();
-                self.advance();
-                if self.get_current() != Tk::Semicolon {
-                    return self.parser_error(";", TokenError);
-                }
-                self.advance();
-                return Match(AstNode::new_ast_flow(&token, &AstNode::new_null()));
-            }
-            Tk::Keyword(Keyword::Return) => {
-                let token = self.get_current_token();
-                self.advance();
-                if self.get_current() == Tk::Semicolon {
-                    self.advance();
-                    return Match(AstNode::new_ast_flow(&token, &AstNode::new_null()));
-                }
-                match self.expr() {
-                    Match(node) => {
-                        if self.get_current() != Tk::Semicolon {
-                            return self.parser_error(";", TokenError);
-                        }
-                        self.advance();
-                        return Match(AstNode::new_ast_flow(&token, &node));
+                    match self.expression() {
+                        Match => return Match,
+                        _ => return Fail,
                     }
-                    _ => return Fail,
-                }
-            }
-            _ => return Unmatch,
-        }
-    }
-
-    fn for_statement(&mut self) -> ParserResult {
-        debug_println!("-> for_statement");
-        if self.get_current() != Tk::Keyword(Keyword::For) {
-            return Unmatch;
-        }
-        self.advance();
-        if self.get_current() != Tk::Bracket(Bracket::LBracket) {
-            return self.parser_error("(", TokenError);
-        }
-        self.advance();
-        return match self.variable_declaration() {
-            Match(decl_node) => {
-                if self.get_current() != Tk::Semicolon {
-                    return self.parser_error(";", TokenError);
-                }
-                self.advance();
-                match self.expr() {
-                    Match(expr_node) => {
-                        if self.get_current() != Tk::Semicolon {
-                            self.parser_error(";", TokenError);
-                        }
-                        self.advance();
-                        match self.assignment_statement() {
-                            Match(ass_node) => {
-                                if self.get_current() != Tk::Bracket(Bracket::RBracket) {
-                                    self.parser_error(")", TokenError);
-                                }
-                                self.advance();
-                                if self.get_current() != Tk::Bracket(Bracket::LCurly) {
-                                    self.parser_error("{", TokenError);
-                                }
-                                self.advance();
-                                match self.statement_list() {
-                                    Match(list_node) => {
-                                        if self.get_current() != Tk::Bracket(Bracket::RCurly) {
-                                            self.parser_error("}", TokenError);
-                                        }
-                                        self.advance();
-                                        Match(AstNode::new_ast_for(
-                                            &decl_node, &expr_node, &ass_node, &list_node,
-                                        ))
-                                    }
-                                    _ => Fail,
-                                }
-                            }
-                            _ => Fail,
-                        }
-                    }
-                    _ => Fail,
-                }
-            }
-            _ => Fail,
-        };
-    }
-
-    fn variable_declaration(&mut self) -> ParserResult {
-        debug_println!("-> variable_declaration");
-        if !self.get_current().is_type() {
-            return Unmatch;
-        }
-        let token_type = self.get_current_token();
-        self.advance();
-        match self.get_current() {
-            Tk::Identifier(id_string) => {
-                let id_node = AstNode::new_ast_identifer(&self.get_current_token());
-                self.advance();
-                if self.get_current() != Tk::Operator(Operator::Assign) {
-                    return self.parser_error("=", TokenError);
-                }
-                self.advance();
-                match self.expr() {
-                    Match(expr_node) => {
-                        self.resolution.add_identifier(&id_string);
-                        return Match(AstNode::new_ast_decl(&token_type, &id_node, &expr_node));
-                    }
-                    _ => return Fail,
-                }
-            }
-            _ => return self.parser_error("identifier", TokenError),
-        }
-    }
-
-    fn if_statement(&mut self) -> ParserResult {
-        debug_println!("-> if_statement");
-        if self.get_current() != Tk::Keyword(Keyword::If) {
-            return Unmatch;
-        }
-        self.advance();
-        if self.get_current() != Tk::Bracket(Bracket::LBracket) {
-            return self.parser_error("(", TokenError);
-        }
-        self.advance();
-        match self.expr() {
-            Match(expr_node) => {
-                if self.get_current() != Tk::Bracket(Bracket::RBracket) {
-                    return self.parser_error(")", TokenError);
-                }
-                self.advance();
-                if self.get_current() != Tk::Bracket(Bracket::LCurly) {
-                    return self.parser_error("{", TokenError);
-                }
-                self.advance();
-                match self.statement_list() {
-                    Match(if_list_node) => {
-                        if self.get_current() != Tk::Bracket(Bracket::RCurly) {
-                            return self.parser_error("}", TokenError);
-                        }
-                        self.advance();
-                        match self.else_statement() {
-                            Match(else_list_node) => {
-                                return Match(AstNode::new_ast_if(
-                                    &expr_node,
-                                    &if_list_node,
-                                    &else_list_node,
-                                ));
-                            }
-                            Unmatch => {
-                                return Match(AstNode::new_ast_if(
-                                    &expr_node,
-                                    &if_list_node,
-                                    &AstNode::new_null(),
-                                ));
-                            }
-                            Fail => return Fail,
-                        }
-                    }
-                    _ => return Fail,
-                }
-            }
-            _ => return Fail,
-        }
-    }
-
-    fn while_statement(&mut self) -> ParserResult {
-        debug_println!("-> while_statement");
-        if self.get_current() != Tk::Keyword(Keyword::While) {
-            return Unmatch;
-        }
-        self.advance();
-        if self.get_current() != Tk::Bracket(Bracket::LBracket) {
-            return self.parser_error("(", TokenError);
-        }
-        self.advance();
-        match self.expr() {
-            Match(node_expr) => {
-                if self.get_current() != Tk::Bracket(Bracket::RBracket) {
-                    return self.parser_error(")", TokenError);
-                }
-                self.advance();
-                if self.get_current() != Tk::Bracket(Bracket::LCurly) {
-                    return self.parser_error("{", TokenError);
-                }
-                self.advance();
-                match self.statement_list() {
-                    Match(node) => {
-                        if self.get_current() != Tk::Bracket(Bracket::RCurly) {
-                            return self.parser_error("}", TokenError);
-                        }
-                        self.advance();
-                        return Match(AstNode::new_ast_while(&node_expr, &node));
-                    }
-                    _ => Fail,
-                }
-            }
-            _ => return Fail,
-        }
-    }
-
-    fn else_statement(&mut self) -> ParserResult {
-        if self.get_current() == Tk::Keyword(Keyword::Else) {
-            self.advance();
-            if self.get_current() != Tk::Bracket(Bracket::LCurly) {
-                return self.parser_error("{", TokenError);
-            }
-            self.advance();
-            match self.statement_list() {
-                Match(node) => {
-                    if self.get_current() != Tk::Bracket(Bracket::RCurly) {
-                        return self.parser_error("}", TokenError);
-                    }
-                    self.advance();
-                    return Match(node);
                 }
                 _ => return Fail,
-            }
-        } else {
-            match self.get_current() {
-                Tk::Identifier(_) => return Unmatch,
-                Tk::EOF => return Unmatch,
-                Tk::Bracket(Bracket::RCurly) => return Unmatch,
-                Tk::Semicolon => return Unmatch,
-                Tk::Keyword(Keyword::For) => return Unmatch,
-                Tk::Keyword(Keyword::While) => return Unmatch,
-                Tk::Keyword(Keyword::Return) => return Unmatch,
-                Tk::Keyword(Keyword::Break) => return Unmatch,
-                Tk::Keyword(Keyword::Continue) => return Unmatch,
-                Tk::Keyword(Keyword::Char) => return Unmatch,
-                Tk::Keyword(Keyword::Int) => return Unmatch,
-                Tk::Keyword(Keyword::Bool) => return Unmatch,
-                Tk::Keyword(Keyword::U8) => return Unmatch,
-                Tk::Keyword(Keyword::U16) => return Unmatch,
-                Tk::Keyword(Keyword::U32) => return Unmatch,
-                Tk::Keyword(Keyword::If) => return Unmatch,
-                _ => {
-                    return self.parser_error("", TokenError);
-                }
-            }
+            },
+            _ => return Fail,
         }
     }
 
-    fn assignment_statement(&mut self) -> ParserResult {
-        debug_println!("-> assignment_statement");
+    /// Parser::logical_expression
+    ///
+    /// Parse a logical_expression, defined as
+    ///
+    /// Logical_expression ->   Equality_expression Logical_expression_star
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn logical_expression(&mut self) -> ParserResult {
+        debug_println!("-> logical_expression");
+        match self.equality_expression() {
+            Match => match self.logical_expression_star() {
+                Match => return Match,
+                Fail => return Fail,
+                Unmatch => return Match,
+            },
+            _ => return Fail,
+        }
+    }
+
+    /// Parser::logical_expression_star
+    ///
+    /// Parse a logical_expression_star, defined as
+    ///
+    ///
+    /// Logical_expression_star -> & Logical_expression
+    ///                          | | Logical_expression
+    ///                          | ^ Logical_expression
+    ///                          | and Logical_expression
+    ///                          | or Logical_expression
+    ///                          | ε
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn logical_expression_star(&mut self) -> ParserResult {
+        debug_println!("-> logical_expression_star");
         match self.get_current() {
-            Tk::Identifier(id_string) => {
-                let id_node = AstNode::new_ast_identifer(&self.get_current_token());
-                match self.resolution.search_identifier(&id_string) {
-                    Ok(_) => {}
-                    Err(expected) => {
-                        return self.parser_error(&id_string, ScopeError(expected));
+            Tk::Operator(AndOp)
+            | Tk::Operator(OrOp)
+            | Tk::Operator(XorOp)
+            | Tk::Keyword(And)
+            | Tk::Keyword(Or) => {
+                self.advance();
+                match self.logical_expression() {
+                    Match => return Match,
+                    _ => return Fail,
+                }
+            }
+            Tk::Bracket(RBracket) | Tk::Semicolon | Tk::Bracket(RSquare) | Tk::Operator(Comma) => {
+                return Unmatch;
+            }
+            _ => return self.parser_error("", TokenError),
+        }
+    }
+
+    /// Parser::equality_expression
+    ///
+    /// Parse an equality_expression, defined as
+    ///
+    /// Equality_expression ->   Relational_expression Equality_expression_star
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn equality_expression(&mut self) -> ParserResult {
+        debug_println!("-> equality_expression");
+        match self.relational_expression() {
+            Match => match self.equality_expression_star() {
+                Match => return Match,
+                Fail => return Fail,
+                Unmatch => return Match,
+            },
+            _ => return Fail,
+        }
+    }
+
+    /// Parser::equality_expression_star
+    ///
+    /// Parse a equality_expression_star, defined as
+    ///
+    /// Equality_expression_star -> == Equality_expression
+    ///                           | != Equality_expression
+    ///                           | ε
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn equality_expression_star(&mut self) -> ParserResult {
+        debug_println!("-> equality_expression_star");
+        match self.get_current() {
+            Tk::Operator(EqualCompare) | Tk::Operator(DiffCompare) => {
+                self.advance();
+                match self.equality_expression() {
+                    Match => return Match,
+                    _ => return Fail,
+                }
+            }
+            Tk::Bracket(RBracket)
+            | Tk::Semicolon
+            | Tk::Bracket(RSquare)
+            | Tk::Operator(Comma)
+            | Tk::Operator(AndOp)
+            | Tk::Operator(OrOp)
+            | Tk::Operator(XorOp)
+            | Tk::Keyword(And)
+            | Tk::Keyword(Or) => {
+                return Unmatch;
+            }
+            _ => return self.parser_error("", TokenError),
+        }
+    }
+
+    /// Parser::relational_expression
+    ///
+    /// Parse a relational_expression, defined as
+    ///
+    /// Relational_expression ->    Shift_expression Relational_expression_star
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn relational_expression(&mut self) -> ParserResult {
+        debug_println!("-> relational_expression");
+        match self.shift_expression() {
+            Match => match self.relational_expression_star() {
+                Match => return Match,
+                Fail => return Fail,
+                Unmatch => return Match,
+            },
+            _ => return Fail,
+        }
+    }
+
+    /// Parser::relational_expression_star
+    ///
+    /// Parse a relational_expression_star, defined as
+    ///
+    /// Relational_expression_star ->   > Relational_expression
+    ///                             |   < Relational_expression
+    ///                             |   >= Relational_expression
+    ///                             |   <= Relational_expression
+    ///                             |   ε
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn relational_expression_star(&mut self) -> ParserResult {
+        debug_println!("-> relational_expression_star");
+        match self.get_current() {
+            Tk::Operator(LTCompare)
+            | Tk::Operator(GTCompare)
+            | Tk::Operator(LECompare)
+            | Tk::Operator(GECompare) => {
+                self.advance();
+                match self.relational_expression() {
+                    Match => return Match,
+                    _ => return Fail,
+                }
+            }
+            Tk::Bracket(RBracket)
+            | Tk::Semicolon
+            | Tk::Bracket(RSquare)
+            | Tk::Operator(Comma)
+            | Tk::Operator(AndOp)
+            | Tk::Operator(OrOp)
+            | Tk::Operator(XorOp)
+            | Tk::Keyword(And)
+            | Tk::Keyword(Or)
+            | Tk::Operator(EqualCompare)
+            | Tk::Operator(DiffCompare) => {
+                return Unmatch;
+            }
+            _ => return self.parser_error("", TokenError),
+        }
+    }
+
+    /// Parser::shift_expression
+    ///
+    /// Parse a shift_expression, defined as
+    ///
+    /// Shift_expression -> Additive_expression Shift_expression_star
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn shift_expression(&mut self) -> ParserResult {
+        debug_println!("-> shift_expression");
+        match self.additive_expression() {
+            Match => match self.shift_expression_star() {
+                Match => return Match,
+                Fail => return Fail,
+                Unmatch => return Match,
+            },
+            _ => return Fail,
+        }
+    }
+
+    /// Parser::shift_expression_star
+    ///
+    /// Parse a shift_expression_star, defined as
+    ///
+    /// Shift_expression_star ->    << Shift_expression
+    ///                        |    >> Shift_expression
+    ///                        |    ε
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn shift_expression_star(&mut self) -> ParserResult {
+        debug_println!("-> shift_expression_star");
+        match self.get_current() {
+            Tk::Operator(LShift) | Tk::Operator(RShift) => {
+                self.advance();
+                match self.shift_expression() {
+                    Match => return Match,
+                    _ => return Fail,
+                }
+            }
+            Tk::Bracket(RBracket)
+            | Tk::Semicolon
+            | Tk::Bracket(RSquare)
+            | Tk::Operator(Comma)
+            | Tk::Operator(AndOp)
+            | Tk::Operator(OrOp)
+            | Tk::Operator(XorOp)
+            | Tk::Keyword(And)
+            | Tk::Keyword(Or)
+            | Tk::Operator(EqualCompare)
+            | Tk::Operator(DiffCompare)
+            | Tk::Operator(LTCompare)
+            | Tk::Operator(GTCompare)
+            | Tk::Operator(LECompare)
+            | Tk::Operator(GECompare) => {
+                return Unmatch;
+            }
+            _ => return self.parser_error("", TokenError),
+        }
+    }
+
+    /// Parser::additive_expression
+    ///
+    /// Parse a additive_expression, defined as
+    ///
+    /// Additive_expression -> Multiplicative_expression Additive_expression_star
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn additive_expression(&mut self) -> ParserResult {
+        debug_println!("-> additive_expression");
+        match self.multiplicative_expression() {
+            Match => match self.additive_expression_star() {
+                Match => return Match,
+                Fail => return Fail,
+                Unmatch => return Match,
+            },
+            _ => return Fail,
+        }
+    }
+
+    /// Parser::additive_expression_star
+    ///
+    /// Parse a additive_expression_star, defined as
+    ///
+    /// Additive_expression_star -> + Additive_expression
+    ///                           | - Additive_expression
+    ///                           | ε
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn additive_expression_star(&mut self) -> ParserResult {
+        debug_println!("-> additive_expression_star");
+        match self.get_current() {
+            Tk::Operator(Plus) | Tk::Operator(Minus) => {
+                self.advance();
+                match self.additive_expression() {
+                    Match => return Match,
+                    _ => return Fail,
+                }
+            }
+            Tk::Bracket(RBracket)
+            | Tk::Semicolon
+            | Tk::Bracket(RSquare)
+            | Tk::Operator(Comma)
+            | Tk::Operator(AndOp)
+            | Tk::Operator(OrOp)
+            | Tk::Operator(XorOp)
+            | Tk::Keyword(And)
+            | Tk::Keyword(Or)
+            | Tk::Operator(EqualCompare)
+            | Tk::Operator(DiffCompare)
+            | Tk::Operator(LTCompare)
+            | Tk::Operator(GTCompare)
+            | Tk::Operator(LECompare)
+            | Tk::Operator(GECompare)
+            | Tk::Operator(LShift)
+            | Tk::Operator(RShift) => {
+                return Unmatch;
+            }
+            _ => return self.parser_error("", TokenError),
+        }
+    }
+
+    /// Parser::multiplicative_expression
+    ///
+    /// Parse a multiplicative_expression, defined as
+    ///
+    /// Multiplicative_expression -> Cast_expression Multiplicative_expression_star
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn multiplicative_expression(&mut self) -> ParserResult {
+        debug_println!("-> multiplicative_expression");
+        match self.cast_expression() {
+            Match => match self.multiplicative_expression_star() {
+                Match => return Match,
+                Fail => return Fail,
+                Unmatch => return Match,
+            },
+            _ => return Fail,
+        }
+    }
+
+    /// Parser::multiplicative_expression_star
+    ///
+    /// Parse a multiplicative_expression_star, defined as
+    ///
+    /// Multiplicative_expression_star ->   * Multiplicative_expression
+    ///                                 |   / Multiplicative_expression
+    ///                                 |   % Multiplicative_expression
+    ///                                 |   ε
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn multiplicative_expression_star(&mut self) -> ParserResult {
+        debug_println!("-> multiplicative_expression_star");
+        match self.get_current() {
+            Tk::Operator(Asterisk) | Tk::Operator(Slash) | Tk::Operator(Module) => {
+                self.advance();
+                match self.multiplicative_expression() {
+                    Match => return Match,
+                    _ => return Fail,
+                }
+            }
+            Tk::Bracket(RBracket)
+            | Tk::Semicolon
+            | Tk::Bracket(RSquare)
+            | Tk::Operator(Comma)
+            | Tk::Operator(AndOp)
+            | Tk::Operator(OrOp)
+            | Tk::Operator(XorOp)
+            | Tk::Keyword(And)
+            | Tk::Keyword(Or)
+            | Tk::Operator(EqualCompare)
+            | Tk::Operator(DiffCompare)
+            | Tk::Operator(LTCompare)
+            | Tk::Operator(GTCompare)
+            | Tk::Operator(LECompare)
+            | Tk::Operator(GECompare)
+            | Tk::Operator(LShift)
+            | Tk::Operator(RShift)
+            | Tk::Operator(Plus)
+            | Tk::Operator(Minus) => {
+                return Unmatch;
+            }
+            _ => return self.parser_error("", TokenError),
+        }
+    }
+
+    /// Parser::cast_expression
+    ///
+    /// Parse a cast_expression, defined as
+    ///
+    /// Cast_expression ->  ( Pointer_type ) Cast_expression
+    ///                  |  Unary_expression
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn cast_expression(&mut self) -> ParserResult {
+        debug_println!("-> cast_expression");
+        match self.get_current() {
+            Tk::Bracket(LBracket) => {
+                self.advance();
+                if self.get_current().is_type() {
+                    match self.pointer_type() {
+                        Match => match self.get_current() {
+                            Tk::Bracket(RBracket) => {
+                                self.advance();
+                                match self.cast_expression() {
+                                    Match => return Match,
+                                    _ => return Fail,
+                                }
+                            }
+                            _ => return self.parser_error(")", TokenError),
+                        },
+                        Unmatch => {
+                            self.previous();
+                        }
+                        _ => return Fail,
                     }
+                } else {
+                    self.previous();
                 }
+            }
+            _ => {}
+        }
+        match self.unary_expression() {
+            Match => Match,
+            _ => Fail,
+        }
+    }
+
+    /// Parser::pointer_type
+    ///
+    /// Parse a pointer_type, defined as
+    ///
+    /// Pointer_type -> Type_native Pointer
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn pointer_type(&mut self) -> ParserResult {
+        debug_println!("-> pointer_type");
+        match self.type_native() {
+            Match => match self.pointer() {
+                Match => Match,
+                Unmatch => Match,
+                Fail => Fail,
+            },
+            _ => Unmatch,
+        }
+    }
+
+    /// Parser::pointer
+    ///
+    /// Parse a pointer, defined as
+    ///
+    /// Pointer -> * Pointer
+    ///          | ε
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn pointer(&mut self) -> ParserResult {
+        debug_println!("-> pointer");
+        match self.get_current() {
+            Tk::Operator(Asterisk) => {
                 self.advance();
-                if self.get_current() != Tk::Operator(Operator::Assign) {
-                    return self.parser_error("=", TokenError);
+                match self.pointer() {
+                    Fail => return Fail,
+                    Match => return Match,
+                    Unmatch => return Unmatch,
                 }
+            }
+            Tk::Identifier(_) => return Unmatch,
+            Tk::Bracket(RBracket) => return Unmatch,
+            _ => return self.parser_error("", TokenError),
+        }
+    }
+
+    /// Parser::type_native
+    ///
+    /// Parse a type_native, defined as
+    ///
+    /// Type_native -> u8 | u16 | u32 | i8 | i16 | i32 | void
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn type_native(&mut self) -> ParserResult {
+        debug_println!("-> type_native");
+        match self.get_current() {
+            Tk::Keyword(U8)
+            | Tk::Keyword(U16)
+            | Tk::Keyword(U32)
+            | Tk::Keyword(I8)
+            | Tk::Keyword(I16)
+            | Tk::Keyword(I32)
+            | Tk::Keyword(Void) => {
                 self.advance();
-                let expr_result = self.expr();
-                return match expr_result {
-                    Match(node) => return Match(AstNode::new_ast_assignment(&id_node, &node)),
+                return Match;
+            }
+            _ => return Fail,
+        }
+    }
+
+    /// Parser::unary_expression
+    ///
+    /// Parse a unary_expression, defined as
+    ///
+    /// Unary_expression -> Postfix_expression
+    ///                   | + Unary_expression
+    ///                   | - Unary_expression
+    ///                   | ! Unary_expression
+    ///                   | & Unary_expression
+    ///                   | * Unary_expression
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn unary_expression(&mut self) -> ParserResult {
+        debug_println!("-> unary_expression");
+        match self.get_current() {
+            Tk::Operator(Plus)
+            | Tk::Operator(Minus)
+            | Tk::Operator(Complement)
+            | Tk::Operator(AndOp)
+            | Tk::Operator(Asterisk) => {
+                self.advance();
+                match self.unary_expression() {
+                    Match => Match,
                     _ => Fail,
-                };
+                }
             }
-            _ => return Unmatch,
-        }
-    }
-
-    fn expr(&mut self) -> ParserResult {
-        debug_println!("-> expr");
-
-        let mut op_stack: Vec<Token> = Vec::new();
-        let mut node_stack: Vec<AstNode> = Vec::new();
-
-        match self.comparison() {
-            Match(node) => {
-                node_stack.push(node);
-                while self.get_current() == Tk::Operator(Operator::EqualCompare)
-                    || self.get_current() == Tk::Operator(Operator::DiffCompare)
-                {
-                    op_stack.push(self.get_current_token());
-                    self.advance();
-                    match self.comparison() {
-                        Match(node) => node_stack.push(node),
-                        _ => return Fail,
-                    }
-                }
-                let mut final_node = node_stack.remove(0);
-                while node_stack.len() != 0 {
-                    let op = op_stack.remove(0);
-                    let new_operand = node_stack.remove(0);
-                    final_node = AstNode::new_ast_binary(&op, &final_node, &new_operand);
-                }
-                if self.get_current() != Tk::Semicolon
-                    && self.get_current() != Tk::Bracket(Bracket::RBracket)
-                {
-                    return self.parser_error("", TokenError);
-                }
-                Match(final_node)
-            }
-            _ => Fail,
-        }
-    }
-
-    fn comparison(&mut self) -> ParserResult {
-        debug_println!("-> comparison");
-
-        let mut op_stack: Vec<Token> = Vec::new();
-        let mut node_stack: Vec<AstNode> = Vec::new();
-
-        match self.term() {
-            Match(node) => {
-                node_stack.push(node);
-                while self.get_current() == Tk::Operator(Operator::LTCompare)
-                    || self.get_current() == Tk::Operator(Operator::GTCompare)
-                    || self.get_current() == Tk::Operator(Operator::LECompare)
-                    || self.get_current() == Tk::Operator(Operator::GECompare)
-                {
-                    op_stack.push(self.get_current_token());
-                    self.advance();
-                    match self.term() {
-                        Match(node) => node_stack.push(node),
-                        _ => return Fail,
-                    }
-                }
-                let mut final_node = node_stack.remove(0);
-                while node_stack.len() != 0 {
-                    let op = op_stack.remove(0);
-                    let new_operand = node_stack.remove(0);
-                    final_node = AstNode::new_ast_binary(&op, &final_node, &new_operand);
-                }
-                if self.get_current() != Tk::Semicolon
-                    && self.get_current() != Tk::Bracket(Bracket::RBracket)
-                    && self.get_current() != Tk::Operator(Operator::EqualCompare)
-                    && self.get_current() != Tk::Operator(Operator::DiffCompare)
-                {
-                    return self.parser_error("", TokenError);
-                }
-                Match(final_node)
-            }
-            _ => Fail,
-        }
-    }
-
-    fn term(&mut self) -> ParserResult {
-        debug_println!("-> term");
-
-        let mut op_stack: Vec<Token> = Vec::new();
-        let mut node_stack: Vec<AstNode> = Vec::new();
-
-        match self.factor() {
-            Match(node) => {
-                node_stack.push(node);
-                while self.get_current() == Tk::Operator(Operator::Plus)
-                    || self.get_current() == Tk::Operator(Operator::Minus)
-                    || self.get_current() == Tk::Operator(Operator::Xor)
-                    || self.get_current() == Tk::Operator(Operator::And)
-                    || self.get_current() == Tk::Operator(Operator::Or)
-                {
-                    op_stack.push(self.get_current_token());
-                    self.advance();
-                    match self.factor() {
-                        Match(node) => node_stack.push(node),
-                        _ => return Fail,
-                    }
-                }
-                let mut final_node = node_stack.remove(0);
-                while node_stack.len() != 0 {
-                    let op = op_stack.remove(0);
-                    let new_operand = node_stack.remove(0);
-                    final_node = AstNode::new_ast_binary(&op, &final_node, &new_operand);
-                }
-                if self.get_current() != Tk::Semicolon
-                    && self.get_current() != Tk::Bracket(Bracket::RBracket)
-                    && self.get_current() != Tk::Operator(Operator::EqualCompare)
-                    && self.get_current() != Tk::Operator(Operator::LTCompare)
-                    && self.get_current() != Tk::Operator(Operator::GTCompare)
-                    && self.get_current() != Tk::Operator(Operator::GECompare)
-                    && self.get_current() != Tk::Operator(Operator::LECompare)
-                    && self.get_current() != Tk::Operator(Operator::DiffCompare)
-                {
-                    return self.parser_error("", TokenError);
-                }
-                Match(final_node)
-            }
-            _ => Fail,
-        }
-    }
-
-    fn factor(&mut self) -> ParserResult {
-        debug_println!("-> factor");
-
-        let mut op_stack: Vec<Token> = Vec::new();
-        let mut node_stack: Vec<AstNode> = Vec::new();
-
-        match self.unary() {
-            Match(node) => {
-                node_stack.push(node);
-                while self.get_current() == Tk::Operator(Operator::Module)
-                    || self.get_current() == Tk::Operator(Operator::Slash)
-                    || self.get_current() == Tk::Operator(Operator::Module)
-                    || self.get_current() == Tk::Operator(Operator::Asterisk)
-                {
-                    op_stack.push(self.get_current_token());
-                    self.advance();
-                    match self.unary() {
-                        Match(node) => node_stack.push(node),
-                        _ => return Fail,
-                    }
-                }
-                let mut final_node = node_stack.remove(0);
-                while node_stack.len() != 0 {
-                    let op = op_stack.remove(0);
-                    let new_operand = node_stack.remove(0);
-                    final_node = AstNode::new_ast_binary(&op, &final_node, &new_operand);
-                }
-                if self.get_current() != Tk::Semicolon
-                    && self.get_current() != Tk::Bracket(Bracket::RBracket)
-                    && self.get_current() != Tk::Operator(Operator::EqualCompare)
-                    && self.get_current() != Tk::Operator(Operator::LTCompare)
-                    && self.get_current() != Tk::Operator(Operator::GTCompare)
-                    && self.get_current() != Tk::Operator(Operator::GECompare)
-                    && self.get_current() != Tk::Operator(Operator::LECompare)
-                    && self.get_current() != Tk::Operator(Operator::Plus)
-                    && self.get_current() != Tk::Operator(Operator::Minus)
-                    && self.get_current() != Tk::Operator(Operator::Or)
-                    && self.get_current() != Tk::Operator(Operator::And)
-                    && self.get_current() != Tk::Operator(Operator::Xor)
-                    && self.get_current() != Tk::Operator(Operator::DiffCompare)
-                {
-                    return self.parser_error("", TokenError);
-                }
-                Match(final_node)
-            }
-            _ => Fail,
-        }
-    }
-
-    fn unary(&mut self) -> ParserResult {
-        debug_println!("-> unary");
-        if self.get_current() == Tk::Operator(Operator::Plus)
-            || self.get_current() == Tk::Operator(Operator::Minus)
-            || self.get_current() == Tk::Operator(Operator::Not)
-            || self.get_current() == Tk::Operator(Operator::Complement)
-        {
-            let token = self.get_current_token();
-            self.advance();
-            return match self.unary() {
-                Match(node) => return Match(AstNode::new_ast_unary(&token, &node)),
+            _ => match self.postfix_expression() {
+                Match => Match,
                 _ => Fail,
-            };
+            },
         }
-        return self.primary();
     }
 
-    fn primary(&mut self) -> ParserResult {
-        debug_println!("-> primary");
+    /// Parser::postfix_expression
+    ///
+    /// Parse a postfix_expression, defined as
+    ///
+    /// Postfix_expression ->   Primary_expression  Postfix_operator
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn postfix_expression(&mut self) -> ParserResult {
+        debug_println!("-> postfix_expression");
+        match self.primary_expression() {
+            Match => match self.postfix_operator() {
+                Match => return Match,
+                Unmatch => return Match,
+                Fail => return Fail,
+            },
+            _ => return Fail,
+        }
+    }
+
+    /// Parser::postfix_operator
+    ///
+    /// Parse a postfix_operator, defined as
+    ///
+    /// Postfix_operator -> [ Expression ] Postfix_operator
+    ///                   | ( ) Postfix_operator
+    ///                   | ( Expression_list ) Postfix_operator
+    ///                   | ε
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn postfix_operator(&mut self) -> ParserResult {
+        debug_println!("-> postfix_operator");
         match self.get_current() {
-            Tk::IntegerLiteral(_) => {
-                let token = self.get_current_token();
+            Tk::Bracket(LSquare) => {
                 self.advance();
-                return Match(AstNode::new_ast_numerical(&token));
-            }
-            Tk::Identifier(id_string) => {
-                match self.resolution.search_identifier(&id_string) {
-                    Ok(_) => {}
-                    Err(expected) => {
-                        return self.parser_error(&id_string, ScopeError(expected));
-                    }
+                match self.expression() {
+                    Match => match self.get_current() {
+                        Tk::Bracket(RSquare) => {
+                            self.advance();
+                            match self.postfix_operator() {
+                                Fail => Fail,
+                                Unmatch => Match,
+                                Match => Match,
+                            }
+                        }
+                        _ => return self.parser_error("]", TokenError),
+                    },
+                    _ => Fail,
                 }
-                let token = self.get_current_token();
+            }
+            Tk::Bracket(LBracket) => {
                 self.advance();
-                return Match(AstNode::new_ast_identifer(&token));
+                match self.get_current() {
+                    Tk::Bracket(RBracket) => {
+                        self.advance();
+                        match self.postfix_operator() {
+                            Fail => return Fail,
+                            Unmatch => return Match,
+                            Match => return Match,
+                        }
+                    }
+                    _ => {}
+                }
+                match self.expression_list() {
+                    Match => match self.get_current() {
+                        Tk::Bracket(RBracket) => {
+                            self.advance();
+                            match self.postfix_operator() {
+                                Fail => return Fail,
+                                Unmatch => return Match,
+                                Match => return Match,
+                            }
+                        }
+                        _ => return self.parser_error(")", TokenError),
+                    },
+                    _ => Fail,
+                }
+            }
+            Tk::Bracket(RBracket)
+            | Tk::Semicolon
+            | Tk::Bracket(RSquare)
+            | Tk::Operator(Comma)
+            | Tk::Operator(AndOp)
+            | Tk::Operator(OrOp)
+            | Tk::Operator(XorOp)
+            | Tk::Keyword(And)
+            | Tk::Keyword(Or)
+            | Tk::Operator(EqualCompare)
+            | Tk::Operator(DiffCompare)
+            | Tk::Operator(LTCompare)
+            | Tk::Operator(GTCompare)
+            | Tk::Operator(LECompare)
+            | Tk::Operator(GECompare)
+            | Tk::Operator(LShift)
+            | Tk::Operator(RShift)
+            | Tk::Operator(Asterisk)
+            | Tk::Operator(Slash)
+            | Tk::Operator(Module)
+            | Tk::Operator(Assign)
+            | Tk::Operator(Plus)
+            | Tk::Operator(Minus) => return Unmatch,
+            _ => return self.parser_error("", TokenError),
+        }
+    }
+
+    /// Parser::primary_expression
+    ///
+    /// Parse a primary_expression, defined as
+    ///
+    /// Primary_expression ->   identifier
+    ///                     |   number
+    ///                     |   char
+    ///                     |   ( Expression )
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn primary_expression(&mut self) -> ParserResult {
+        debug_println!("-> primary_expression");
+        match self.get_current() {
+            Tk::Identifier(_) => {
+                self.advance();
+                return Match;
+            }
+            Tk::IntegerLiteral(_) => {
+                self.advance();
+                return Match;
             }
             Tk::Char(_) => {
-                let token = self.get_current_token();
                 self.advance();
-                return Match(AstNode::new_ast_character(&token));
+                return Match;
             }
-            Tk::Keyword(Keyword::True) | Tk::Keyword(Keyword::False) => {
-                let token = self.get_current_token();
+            Tk::Bracket(LBracket) => {
                 self.advance();
-                return Match(AstNode::new_ast_boolean(&token));
-            }
-            Tk::Bracket(Bracket::LBracket) => {
-                self.advance();
-                match self.expr() {
-                    Match(node) => {
-                        if self.get_current() != Tk::Bracket(Bracket::RBracket) {
-                            return self.parser_error("right bracket", TokenError);
+                match self.expression() {
+                    Match => match self.get_current() {
+                        Tk::Bracket(RBracket) => {
+                            self.advance();
+                            return Match;
                         }
-                        self.advance();
-                        return Match(node);
-                    }
-                    _ => {
-                        return Fail;
-                    }
+                        _ => return self.parser_error(")", TokenError),
+                    },
+                    _ => return Fail,
                 }
             }
-            _ => {
-                return self.parser_error("", TokenError);
-            }
+            _ => return self.parser_error("", TokenError),
         }
     }
 
+    /// Parser::expression_list
+    ///
+    /// Parse a expression_list, defined as
+    ///
+    /// Expression_list ->  Expression Expression_list_star
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn expression_list(&mut self) -> ParserResult {
+        debug_println!("-> expression_list");
+        match self.expression() {
+            Match => match self.expression_list_star() {
+                Match => Match,
+                Fail => Fail,
+                Unmatch => Match,
+            },
+            _ => return Fail,
+        }
+    }
+
+    /// Parser::expression_list_star
+    ///
+    /// Parse a expression_list_star, defined as
+    ///
+    /// Expression_list_star -> , Expression_list
+    ///                       | ε
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn expression_list_star(&mut self) -> ParserResult {
+        debug_println!("-> expression_list_star");
+        match self.get_current() {
+            Tk::Operator(Comma) => {
+                self.advance();
+                match self.expression_list() {
+                    Match => return Match,
+                    _ => return Fail,
+                }
+            }
+            Tk::Bracket(RBracket) => return Unmatch,
+            _ => return self.parser_error("", TokenError),
+        }
+    }
+
+    /// Parser::parser_error
+    ///
+    /// Generate an error from the parser
+    ///
+    /// @in expected [&str]: string to give some information about the error
+    /// @in error [ParserErrorType]: type of error to handle
+    /// @return [ParseResult]: Always Fail
     fn parser_error(&mut self, expected: &str, error: ParserErrorType) -> ParserResult {
         self.errors_counter += 1;
         let line_number = self.token_list[self.current_position].line_number;
@@ -751,17 +888,7 @@ impl Parser {
                     );
                 }
             }
-            ScopeError(exp) => {
-                eprint!(
-                    "\x1b[91merror parser: \x1b[0midentifier `\x1b[34m{}\x1b[0m` not found in the current scope",
-                    expected,
-                );
-                if exp.len() > 0 {
-                    eprintln!("; did you mean `\x1b[34m{}\x1b[0m`?", exp,);
-                } else {
-                    eprintln!("");
-                }
-            }
+            _ => {}
         }
         if line_number as usize > file_lines.len() {
             return Fail;

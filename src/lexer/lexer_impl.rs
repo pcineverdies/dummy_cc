@@ -7,15 +7,12 @@ use std::fs::read_to_string;
 /// Enum associated to the keywords in the language
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Keyword {
-    Int,
     Main,
     Return,
-    Char,
     If,
     Else,
     While,
     For,
-    Bool,
     And,
     Or,
     True,
@@ -25,6 +22,10 @@ pub enum Keyword {
     U8,
     U16,
     U32,
+    I8,
+    I16,
+    I32,
+    Void,
 }
 
 impl Keyword {
@@ -35,15 +36,12 @@ impl Keyword {
     //! or None if it was not recognized
     fn from(input: &str) -> Option<Keyword> {
         match input {
-            "int" => Some(Keyword::Int),
             "main" => Some(Keyword::Main),
             "return" => Some(Keyword::Return),
-            "char" => Some(Keyword::Char),
             "if" => Some(Keyword::If),
             "else" => Some(Keyword::Else),
             "while" => Some(Keyword::While),
             "for" => Some(Keyword::For),
-            "bool" => Some(Keyword::Bool),
             "and" => Some(Keyword::And),
             "or" => Some(Keyword::Or),
             "true" => Some(Keyword::True),
@@ -53,6 +51,10 @@ impl Keyword {
             "u8" => Some(Keyword::U8),
             "u16" => Some(Keyword::U16),
             "u32" => Some(Keyword::U32),
+            "i8" => Some(Keyword::I8),
+            "i16" => Some(Keyword::I16),
+            "i32" => Some(Keyword::I32),
+            "void" => Some(Keyword::Void),
             _ => None,
         }
     }
@@ -106,14 +108,15 @@ pub enum Operator {
     Plus,
     Asterisk,
     Slash,
-    Xor,
-    And,
+    XorOp,
+    AndOp,
+    OrOp,
     Not,
     Complement,
-    Or,
     Module,
     LShift,
     RShift,
+    Comma,
 }
 
 impl Operator {
@@ -125,6 +128,7 @@ impl Operator {
     fn from(input: &str) -> Option<Operator> {
         match input {
             "=" => Some(Operator::Assign),
+            "," => Some(Operator::Comma),
             "==" => Some(Operator::EqualCompare),
             "!=" => Some(Operator::DiffCompare),
             "<" => Some(Operator::LTCompare),
@@ -135,11 +139,11 @@ impl Operator {
             "+" => Some(Operator::Plus),
             "*" => Some(Operator::Asterisk),
             "/" => Some(Operator::Slash),
-            "^" => Some(Operator::Xor),
-            "&" => Some(Operator::And),
+            "^" => Some(Operator::XorOp),
+            "&" => Some(Operator::AndOp),
             "~" => Some(Operator::Complement),
             "!" => Some(Operator::Not),
-            "|" => Some(Operator::Or),
+            "|" => Some(Operator::OrOp),
             "%" => Some(Operator::Module),
             "<<" => Some(Operator::LShift),
             ">>" => Some(Operator::RShift),
@@ -205,15 +209,13 @@ impl Tk {
                 Bracket::RBracket => ")".to_string(),
             },
             Tk::Keyword(kw) => match kw {
-                Keyword::Int => "int".to_string(),
                 Keyword::Main => "main".to_string(),
+                Keyword::Void => "void".to_string(),
                 Keyword::Return => "return".to_string(),
-                Keyword::Char => "char".to_string(),
                 Keyword::If => "if".to_string(),
                 Keyword::Else => "else".to_string(),
                 Keyword::While => "while".to_string(),
                 Keyword::For => "for".to_string(),
-                Keyword::Bool => "bool".to_string(),
                 Keyword::And => "and".to_string(),
                 Keyword::Or => "or".to_string(),
                 Keyword::True => "true".to_string(),
@@ -223,9 +225,13 @@ impl Tk {
                 Keyword::U8 => "u8".to_string(),
                 Keyword::U16 => "u16".to_string(),
                 Keyword::U32 => "u32".to_string(),
+                Keyword::I8 => "i8".to_string(),
+                Keyword::I16 => "i16".to_string(),
+                Keyword::I32 => "i32".to_string(),
             },
             Tk::Operator(operator) => match operator {
                 Operator::Assign => "=".to_string(),
+                Operator::Comma => ",".to_string(),
                 Operator::EqualCompare => "==".to_string(),
                 Operator::DiffCompare => "!=".to_string(),
                 Operator::LTCompare => "<".to_string(),
@@ -236,11 +242,11 @@ impl Tk {
                 Operator::Plus => "+".to_string(),
                 Operator::Asterisk => "*".to_string(),
                 Operator::Slash => "/".to_string(),
-                Operator::Xor => "^".to_string(),
-                Operator::And => "&".to_string(),
+                Operator::XorOp => "^".to_string(),
+                Operator::AndOp => "&".to_string(),
                 Operator::Complement => "~".to_string(),
                 Operator::Not => "!".to_string(),
-                Operator::Or => "|".to_string(),
+                Operator::OrOp => "|".to_string(),
                 Operator::Module => "%".to_string(),
                 Operator::LShift => "<<".to_string(),
                 Operator::RShift => ">>".to_string(),
@@ -255,19 +261,22 @@ impl Tk {
         };
     }
 
-    pub fn is_type(self) -> bool {
-        if self == Tk::Keyword(Keyword::Char)
-            || self == Tk::Keyword(Keyword::Bool)
-            || self == Tk::Keyword(Keyword::Int)
-            || self == Tk::Keyword(Keyword::U8)
-            || self == Tk::Keyword(Keyword::U16)
-            || self == Tk::Keyword(Keyword::U32)
-        {
-            return true;
+    pub fn is_type(&self) -> bool {
+        match self {
+            Tk::Keyword(Keyword::U8)
+            | Tk::Keyword(Keyword::I8)
+            | Tk::Keyword(Keyword::U16)
+            | Tk::Keyword(Keyword::I16)
+            | Tk::Keyword(Keyword::U32)
+            | Tk::Keyword(Keyword::I32)
+            | Tk::Keyword(Keyword::Void) => {
+                return true;
+            }
+            _ => return false,
         }
-        return false;
     }
 }
+
 impl fmt::Display for Tk {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.to_string().as_str())

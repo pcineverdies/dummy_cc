@@ -67,7 +67,7 @@ mod test {
 
         let ast_decl = AstNode::new_ast_decl(
             &Token {
-                tk: Tk::Keyword(Keyword::Int),
+                tk: Tk::Keyword(Keyword::U8),
                 line_number: 0,
                 last_character: 0,
                 first_character: 0,
@@ -87,14 +87,14 @@ mod test {
             if_decl2.to_string(0),
             "if(((-b) + 6)){
   if((a + b)){
-    int a = 3;
-    int a = 3;
+    u8 a = 3;
+    u8 a = 3;
   } else {
-    int a = 3;
-    int a = 3;
+    u8 a = 3;
+    u8 a = 3;
   }} else {
-  int a = 3;
-  int a = 3;
+  u8 a = 3;
+  u8 a = 3;
 }"
         );
     }
