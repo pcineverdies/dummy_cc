@@ -131,11 +131,7 @@ impl Parser {
     fn expression(&mut self) -> ParserResult {
         debug_println!("-> expression");
 
-        match self.logical_expression() {
-            Match => return Match,
-            Fail => return Fail,
-            _ => {}
-        }
+        let state_parser = self.clone();
         match self.unary_expression() {
             Match => match self.get_current() {
                 Operator(Assign) => {
@@ -145,8 +141,13 @@ impl Parser {
                         _ => return Fail,
                     }
                 }
-                _ => return Fail,
+                _ => {}
             },
+            _ => {}
+        }
+        *self = state_parser;
+        match self.logical_expression() {
+            Match => return Match,
             _ => return Fail,
         }
     }
