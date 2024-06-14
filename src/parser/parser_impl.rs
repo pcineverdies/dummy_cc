@@ -740,13 +740,13 @@ impl Parser {
             TokenError => {
                 if expected.len() != 0 {
                     eprintln!(
-                        "\x1b[91merror parser: \x1b[0mexpected `\x1b[34m{}\x1b[0m`, found `\x1b[34m{:?}\x1b[0m`",
+                        "\x1b[91merror parser: \x1b[0mexpected `\x1b[34m{}\x1b[0m`, found `\x1b[34m{}\x1b[0m`",
                         expected,
                         self.get_current()
                     );
                 } else {
                     eprintln!(
-                        "\x1b[91merror parser: \x1b[0munexpected token `\x1b[34m{:?}\x1b[0m`",
+                        "\x1b[91merror parser: \x1b[0munexpected token `\x1b[34m{}\x1b[0m`",
                         self.get_current()
                     );
                 }

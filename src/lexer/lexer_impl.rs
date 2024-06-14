@@ -1,3 +1,4 @@
+use std::fmt;
 use std::fs;
 use std::fs::read_to_string;
 
@@ -265,6 +266,11 @@ impl Tk {
             return true;
         }
         return false;
+    }
+}
+impl fmt::Display for Tk {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.to_string().as_str())
     }
 }
 
