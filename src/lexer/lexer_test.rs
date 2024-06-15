@@ -25,7 +25,7 @@ mod test {
                     first_character: 1
                 },
                 Token {
-                    tk: Tk::Keyword(Keyword::Main),
+                    tk: Tk::Identifier(String::from("main")),
                     line_number: 3,
                     last_character: 16,
                     first_character: 13,
@@ -57,7 +57,7 @@ mod test {
                 Token {
                     tk: Tk::EOF,
                     line_number: 7,
-                    last_character: 1,
+                    last_character: 2,
                     first_character: 1,
                 },
             ]
@@ -134,7 +134,7 @@ mod test {
                 Token {
                     tk: Tk::EOF,
                     line_number: 2,
-                    last_character: 1,
+                    last_character: 2,
                     first_character: 1,
                 },
             ]
@@ -209,7 +209,7 @@ mod test {
                 Token {
                     tk: Tk::EOF,
                     line_number: 6,
-                    last_character: 1,
+                    last_character: 2,
                     first_character: 1,
                 },
             ]

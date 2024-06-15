@@ -15,6 +15,7 @@ pub struct Parser {
     errors_counter: u32,
     file_name: String,
     resolution: Resolution,
+    skip_erorrs: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -53,6 +54,7 @@ impl Parser {
             errors_counter: 0,
             file_name,
             resolution: Resolution::new(),
+            skip_erorrs: false,
         }
     }
 
@@ -102,10 +104,10 @@ impl Parser {
     pub fn parse(&mut self) -> Option<()> {
         debug_println!("-> parse");
 
-        match self.expression() {
+        match self.external_declaration_list() {
             Match => {
-                if self.get_current() != Tk::Semicolon {
-                    self.parser_error("", TokenError);
+                if self.get_current() != Tk::EOF {
+                    self.parser_error("EOF", TokenError);
                     return None;
                 } else if self.errors_counter > 0 {
                     return None;
@@ -116,6 +118,551 @@ impl Parser {
             _ => {
                 return None;
             }
+        }
+    }
+
+    /// Parser::external_declaration_list
+    ///
+    /// Parse an external_declaration_list, defined as
+    ///
+    /// External_declaration_list -> Declaration External_declaration_list_star
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn external_declaration_list(&mut self) -> ParserResult {
+        debug_println!("-> external_declaration_list");
+        match self.declaration() {
+            Match => match self.external_declaration_list_star() {
+                Match => return Match,
+                Fail => return Fail,
+                Unmatch => return Match,
+            },
+            _ => return Fail,
+        }
+    }
+
+    /// Parser::external_declaration_list_star
+    ///
+    /// Parse an external_declaration_list_star, defined as
+    ///
+    /// External_declaration_list_star ->   ε
+    ///                                 |   External_declaration_list
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn external_declaration_list_star(&mut self) -> ParserResult {
+        debug_println!("-> external_declaration_list_star");
+        if self.get_current() == Tk::EOF {
+            return Unmatch;
+        }
+        match self.external_declaration_list() {
+            Match => Match,
+            _ => Fail,
+        }
+    }
+
+    /// Parser::declaration
+    ///
+    /// Parse a compound_statement, defined as
+    ///
+    /// Declaration ->  Type_declaration identifier stop
+    ///              |  Type_declaration identifier =  Expression stop
+    ///              |  Type_declaration identifier ( Parameter_list ) stop
+    ///              |  Type_declaration identifier ( Parameter_list ) Compound_statement
+    ///              |  Type_declaration identifier Array_declaration stop
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn declaration(&mut self) -> ParserResult {
+        match self.type_declaration() {
+            Match => match self.get_current() {
+                Tk::Identifier(_) => {
+                    self.advance();
+                    match self.get_current() {
+                        Tk::Semicolon => {
+                            self.advance();
+                            return Match;
+                        }
+                        Tk::Operator(Assign) => {
+                            self.advance();
+                            match self.expression() {
+                                Match => {
+                                    if self.get_current() != Tk::Semicolon {
+                                        return self.parser_error(";", TokenError);
+                                    }
+                                    self.advance();
+                                    return Match;
+                                }
+                                _ => Fail,
+                            }
+                        }
+                        Tk::Bracket(LBracket) => {
+                            self.advance();
+                            match self.parameter_list() {
+                                Match => {
+                                    if self.get_current() != Tk::Bracket(RBracket) {
+                                        return self.parser_error(")", TokenError);
+                                    }
+                                    self.advance();
+                                    if self.get_current() == Tk::Semicolon {
+                                        self.advance();
+                                        return Match;
+                                    }
+                                    match self.compound_statement() {
+                                        Match => Match,
+                                        _ => Fail,
+                                    }
+                                }
+                                _ => Fail,
+                            }
+                        }
+                        Tk::Bracket(LSquare) => match self.array_declaration() {
+                            Match => {
+                                if self.get_current() != Tk::Semicolon {
+                                    return self.parser_error(";", TokenError);
+                                }
+                                self.advance();
+                                return Match;
+                            }
+                            _ => Fail,
+                        },
+                        _ => return self.parser_error("", TokenError),
+                    }
+                }
+                _ => {
+                    return self.parser_error("identifier", TokenError);
+                }
+            },
+            _ => Fail,
+        }
+    }
+
+    /// Parser::array_declaration
+    ///
+    /// Parse an array_declaration, defined as
+    ///
+    /// Array_declaration ->    [ Logical_expression ] | [Logical_expression] Array_declaration
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn array_declaration(&mut self) -> ParserResult {
+        if self.get_current() != Tk::Bracket(LSquare) {
+            return self.parser_error("[", TokenError);
+        }
+        self.advance();
+        match self.logical_expression() {
+            Match => {
+                if self.get_current() != Tk::Bracket(RSquare) {
+                    return self.parser_error("]", TokenError);
+                }
+                self.advance();
+                if self.get_current() != Tk::Bracket(LSquare) {
+                    return Match;
+                }
+                match self.array_declaration() {
+                    Match => Match,
+                    _ => Fail,
+                }
+            }
+            _ => Fail,
+        }
+    }
+
+    /// Parser::type_declaration
+    ///
+    /// Parse a type_declaration, defined as
+    ///
+    /// Type_declaration -> cost Pointer_type | Pointer_type
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn type_declaration(&mut self) -> ParserResult {
+        debug_println!("-> type_declaration");
+        if self.get_current() == Tk::Keyword(Const) {
+            self.advance();
+        }
+        match self.pointer_type() {
+            Match => Match,
+            _ => Fail,
+        }
+    }
+
+    /// Parser::parameter_list
+    ///
+    /// Parse a parameter_list, defined as
+    ///
+    /// Parameter_list ->   Type_declaration identifier Parameter_list_star
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn parameter_list(&mut self) -> ParserResult {
+        debug_println!("-> parameter_list");
+        if self.get_current() == Tk::Bracket(RBracket) {
+            return Match;
+        }
+        match self.type_declaration() {
+            Match => match self.get_current() {
+                Identifier(_) => {
+                    self.advance();
+                    match self.parameter_list_star() {
+                        Fail => Fail,
+                        _ => Match,
+                    }
+                }
+                _ => self.parser_error("identifier", TokenError),
+            },
+            _ => Fail,
+        }
+    }
+
+    /// Parser::parameter_list_star
+    ///
+    /// Parse a parameter_list_star, defined as
+    ///
+    /// Parameter_list_star ->  , Parameter_list
+    ///                      |  ε
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn parameter_list_star(&mut self) -> ParserResult {
+        debug_println!("-> parameter_list_star");
+        if self.get_current() == Tk::Bracket(RBracket) {
+            return Unmatch;
+        }
+        match self.get_current() {
+            Tk::Operator(Comma) => {
+                self.advance();
+                match self.parameter_list() {
+                    Match => Match,
+                    _ => Fail,
+                }
+            }
+            _ => self.parser_error(",", TokenError),
+        }
+    }
+
+    /// Parser::compound_statement
+    ///
+    /// Parse a compound_statement, defined as
+    ///
+    /// Compound_statement ->  { Statement_list }
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn compound_statement(&mut self) -> ParserResult {
+        debug_println!("-> compound_statement");
+        match self.get_current() {
+            Tk::Bracket(LCurly) => {
+                self.advance();
+                match self.statement_list() {
+                    Fail => return Fail,
+                    _ => match self.get_current() {
+                        Tk::Bracket(RCurly) => {
+                            self.advance();
+                            return Match;
+                        }
+                        _ => return self.parser_error("}", TokenError),
+                    },
+                }
+            }
+            _ => return self.parser_error("{", TokenError),
+        }
+    }
+
+    /// Parser::statement_list
+    ///
+    /// Parse a statement_list, defined as
+    ///
+    /// Statement_list -> Statement Statement_list
+    ///                 | ε
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn statement_list(&mut self) -> ParserResult {
+        debug_println!("-> statement_list");
+        match self.get_current() {
+            Tk::Bracket(RCurly) => {
+                return Unmatch;
+            }
+            _ => {}
+        }
+        match self.statement() {
+            Match => match self.statement_list() {
+                Match => return Match,
+                Unmatch => return Match,
+                Fail => return Fail,
+            },
+            _ => return Fail,
+        }
+    }
+
+    /// Parser::statement
+    ///
+    /// Parse a statement, defined as
+    ///
+    /// Statement ->    Expression_statement
+    ///            |    Declaration
+    ///            |    Compound_statement
+    ///            |    Selection_statement
+    ///            |    Iteration_statement
+    ///            |    Jump_statement
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn statement(&mut self) -> ParserResult {
+        debug_println!("-> statement");
+        if self.get_current().is_type() || self.get_current() == Tk::Keyword(Const) {
+            match self.declaration() {
+                Match => return Match,
+                Fail => return Fail,
+                Unmatch => {}
+            }
+        }
+
+        match self.get_current() {
+            Tk::Bracket(LCurly) => match self.compound_statement() {
+                Match => return Match,
+                _ => return Fail,
+            },
+            Tk::Keyword(Keyword::If) => match self.selection_statement() {
+                Match => return Match,
+                _ => return Fail,
+            },
+            Tk::Keyword(Break) | Tk::Keyword(Continue) | Tk::Keyword(Return) => {
+                match self.jump_statement() {
+                    Match => return Match,
+                    _ => return Fail,
+                }
+            }
+            Tk::Keyword(While) | Tk::Keyword(For) => match self.iteration_statement() {
+                Match => return Match,
+                _ => return Fail,
+            },
+            _ => {}
+        }
+
+        match self.expression_statement() {
+            Match => return Match,
+            _ => return Fail,
+        }
+    }
+
+    /// Parser::jump_statement
+    /// Parse an jump_statement, defined as
+    ///
+    /// Jump_statement ->   return Optional_expression stop
+    ///                 |   break stop
+    ///                 |   continue stop
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn jump_statement(&mut self) -> ParserResult {
+        debug_println!("-> jump_statement");
+        match self.get_current() {
+            Tk::Keyword(Continue) | Tk::Keyword(Break) => {
+                self.advance();
+                if self.get_current() != Tk::Semicolon {
+                    return self.parser_error(";", TokenError);
+                }
+                self.advance();
+                return Match;
+            }
+            Tk::Keyword(Return) => {
+                self.advance();
+                match self.optional_expression() {
+                    Fail => Fail,
+                    _ => {
+                        if self.get_current() != Tk::Semicolon {
+                            return self.parser_error(";", TokenError);
+                        }
+                        self.advance();
+                        return Match;
+                    }
+                }
+            }
+            _ => return self.parser_error("", TokenError),
+        }
+    }
+
+    /// Parser::iteration_statement
+    /// Parse an iteration statement, defined as
+    ///
+    /// Iteration_statement ->  while ( Expression ) Compound_statement
+    ///                      |  for ( Optional_expression stop Optional_expression stop Optional_expression ) Compound_statement
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn iteration_statement(&mut self) -> ParserResult {
+        debug_println!("-> iteration_statement");
+        match self.get_current() {
+            Tk::Keyword(For) => {
+                self.advance();
+                if self.get_current() != Tk::Bracket(LBracket) {
+                    return self.parser_error("(", TokenError);
+                }
+                self.advance();
+                match self.optional_expression() {
+                    Match | Unmatch => {
+                        if self.get_current() != Tk::Semicolon {
+                            return self.parser_error(";", TokenError);
+                        }
+                        self.advance();
+                        match self.optional_expression() {
+                            Match | Unmatch => {
+                                if self.get_current() != Tk::Semicolon {
+                                    return self.parser_error(";", TokenError);
+                                }
+                                self.advance();
+                                match self.optional_expression() {
+                                    Match | Unmatch => {
+                                        if self.get_current() != Tk::Bracket(RBracket) {
+                                            return self.parser_error(")", TokenError);
+                                        }
+                                        self.advance();
+                                        match self.compound_statement() {
+                                            Match => Match,
+                                            _ => Fail,
+                                        }
+                                    }
+                                    _ => Fail,
+                                }
+                            }
+                            _ => Fail,
+                        }
+                    }
+                    _ => Fail,
+                }
+            }
+            Tk::Keyword(While) => {
+                self.advance();
+                match self.get_current() {
+                    Tk::Bracket(LBracket) => {
+                        self.advance();
+                        match self.expression() {
+                            Match => match self.get_current() {
+                                Tk::Bracket(RBracket) => {
+                                    self.advance();
+                                    match self.compound_statement() {
+                                        Match => Match,
+                                        _ => Fail,
+                                    }
+                                }
+                                _ => return self.parser_error(")", TokenError),
+                            },
+                            _ => Fail,
+                        }
+                    }
+                    _ => return self.parser_error("(", TokenError),
+                }
+            }
+            _ => {
+                return self.parser_error("", TokenError);
+            }
+        }
+    }
+
+    /// Parser::selection_statement
+    ///
+    /// Parse a selection_statement, defined as
+    ///
+    /// Selection_statement ->  if ( Expression ) Compound_statement Else_statement
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn selection_statement(&mut self) -> ParserResult {
+        debug_println!("-> selection_statement");
+        match self.get_current() {
+            Tk::Keyword(If) => {
+                self.advance();
+                if self.get_current() != Tk::Bracket(LBracket) {
+                    self.parser_error("(", TokenError);
+                }
+                self.advance();
+                match self.expression() {
+                    Match => {
+                        if self.get_current() != Tk::Bracket(RBracket) {
+                            self.parser_error(")", TokenError);
+                        }
+                        self.advance();
+                        match self.compound_statement() {
+                            Match => match self.else_statement() {
+                                Fail => return Fail,
+                                _ => return Match,
+                            },
+                            _ => return Fail,
+                        }
+                    }
+                    _ => return Fail,
+                }
+            }
+            _ => self.parser_error("if", TokenError),
+        }
+    }
+
+    /// Parser::else_statement
+    ///
+    /// Parse an else_statement, defined as
+    ///
+    /// Else_statement ->   ε
+    ///                 |   else Compound_statement
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn else_statement(&mut self) -> ParserResult {
+        debug_println!("-> else_statement");
+        if self.get_current() != Tk::Keyword(Else) {
+            return Unmatch;
+        }
+        self.advance();
+        match self.compound_statement() {
+            Match => Match,
+            _ => Fail,
+        }
+    }
+
+    /// Parser::expression_statement
+    ///
+    /// Parse an expression_statement, defined as
+    ///
+    /// Expression_statement -> Optional_expression stop
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn expression_statement(&mut self) -> ParserResult {
+        debug_println!("-> expression_statement");
+        match self.optional_expression() {
+            Fail => return Fail,
+            _ => {
+                if self.get_current() == Tk::Semicolon {
+                    self.advance();
+                    return Match;
+                }
+                return self.parser_error(";", TokenError);
+            }
+        }
+    }
+
+    /// Parser::optional_expression
+    ///
+    /// Optional_expression ->  Expression
+    ///                      |  ε
+    ///
+    /// Expression_statement -> Optional_expression stop
+    ///
+    /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
+    /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
+    fn optional_expression(&mut self) -> ParserResult {
+        debug_println!("-> optional_expression");
+        match self.get_current() {
+            Tk::Semicolon | Tk::Bracket(RBracket) => {
+                return Unmatch;
+            }
+            _ => {}
+        }
+
+        match self.expression() {
+            Match => return Match,
+            _ => return Fail,
         }
     }
 
@@ -132,19 +679,24 @@ impl Parser {
         debug_println!("-> expression");
 
         let state_parser = self.clone();
+        self.skip_erorrs = true;
         match self.unary_expression() {
-            Match => match self.get_current() {
-                Operator(Assign) => {
-                    self.advance();
-                    match self.expression() {
-                        Match => return Match,
-                        _ => return Fail,
+            Match => {
+                self.skip_erorrs = false;
+                match self.get_current() {
+                    Operator(Assign) => {
+                        self.advance();
+                        match self.expression() {
+                            Match => return Match,
+                            _ => return Fail,
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
-            },
+            }
             _ => {}
         }
+        debug_println!("~~ Backtracking ~~");
         *self = state_parser;
         match self.logical_expression() {
             Match => return Match,
@@ -573,7 +1125,7 @@ impl Parser {
                 Unmatch => Match,
                 Fail => Fail,
             },
-            _ => Unmatch,
+            _ => Fail,
         }
     }
 
@@ -613,18 +1165,11 @@ impl Parser {
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn type_native(&mut self) -> ParserResult {
         debug_println!("-> type_native");
-        match self.get_current() {
-            Tk::Keyword(U8)
-            | Tk::Keyword(U16)
-            | Tk::Keyword(U32)
-            | Tk::Keyword(I8)
-            | Tk::Keyword(I16)
-            | Tk::Keyword(I32)
-            | Tk::Keyword(Void) => {
-                self.advance();
-                return Match;
-            }
-            _ => return Fail,
+        if self.get_current().is_type() {
+            self.advance();
+            return Match;
+        } else {
+            return self.parser_error("type", TokenError);
         }
     }
 
@@ -863,6 +1408,9 @@ impl Parser {
     /// @in error [ParserErrorType]: type of error to handle
     /// @return [ParseResult]: Always Fail
     fn parser_error(&mut self, expected: &str, error: ParserErrorType) -> ParserResult {
+        if self.skip_erorrs {
+            return Fail;
+        }
         self.errors_counter += 1;
         let line_number = self.token_list[self.current_position].line_number;
         let last_character = self.token_list[self.current_position].last_character;

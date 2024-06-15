@@ -1,64 +1,3 @@
-Translation_unit -> External_declaration_list eof
-
-External_declaration_list -> Declaration External_declaration_list_star
-
-External_declaration_list_star ->   ε
-                                |   External_declaration_list
-
-Declaration ->  Type_declaration identifier stop
-             |  Type_declaration identifier =  Expression stop
-             |  Type_declaration identifier ( Parameter_list ) stop
-             |  Type_declaration identifier ( Parameter_list ) Compound_statement
-             |  Type_declaration identifier Array_declaration stop
-
-Type_declaration -> Optional_const Pointer_type
-
-Optional_const ->   const 
-                |   ε
-
-Parameter_list ->   Type_declaration identifier Parameter_list_star
-
-Parameter_list_star ->  , Parameter_list
-                     |  ε
-
-Array_declaration ->    [ Logical_expression ] Array_declaration_star
-
-Array_declaration_star ->   Array_declaration
-                        |   ε
-
-Compound_statement ->  { Statement_list }
-
-Statement_list -> Statement Statement_list_star
-
-Statement_list_star ->  Statement_list
-                     |  ε
-
-Statement ->    Expression_statement
-           |    Declaration
-           |    Compound_statement
-           |    Selection_statement
-           |    Iteration_statement
-           |    Jump_statement
-
-Expression_statement -> Optional_expression stop
-
-Selection_statement ->  if ( Expression ) Compound_statement
-                     |  if ( Expression ) Compound_statement Else_statement
-
-Else_statement ->   ε
-                |   else Compound_statement
-
-Iteration_statement ->  while ( Expression ) Compound_statement
-                     |  for ( Optional_expression stop Optional_expression stop Optional_expression ) Compound_statement
-
-Optional_expression ->  Expression 
-                     |  ε
-
-Jump_statement ->   return Optional_expression stop
-                |   break
-
-=================
-
 Expression ->    Logical_expression
             |    Unary_expression = Expression
 
@@ -141,3 +80,51 @@ Expression_list ->  Expression Expression_list_star
 Pointer -> * Pointer
          | ε
 
+Compound_statement ->  { Statement_list }
+
+Statement_list -> Statement Statement_list
+                | ε
+
+Expression_statement -> Optional_expression stop
+
+Optional_expression ->  Expression 
+                     |  ε
+
+Selection_statement ->  if ( Expression ) Compound_statement Else_statement
+
+Else_statement ->   ε
+                |   else Compound_statement
+
+Iteration_statement ->  while ( Expression ) Compound_statement
+                     |  for ( Optional_expression stop Optional_expression stop Optional_expression ) Compound_statement
+Jump_statement ->   return Optional_expression stop
+                |   break stop
+                |   continue stop
+
+Translation_unit -> External_declaration_list eof
+
+External_declaration_list -> Declaration External_declaration_list_star
+
+External_declaration_list_star ->   ε
+                                |   External_declaration_list
+
+Declaration ->  Type_declaration identifier stop
+             |  Type_declaration identifier =  Expression stop
+             |  Type_declaration identifier ( Parameter_list ) stop
+             |  Type_declaration identifier ( Parameter_list ) Compound_statement
+             |  Type_declaration identifier Array_declaration stop
+
+Type_declaration -> Optional_const Pointer_type
+
+Optional_const ->   const 
+                |   ε
+
+Parameter_list ->   Type_declaration identifier Parameter_list_star
+
+Parameter_list_star ->  , Parameter_list
+                     |  ε
+
+Array_declaration ->    [ Logical_expression ] Array_declaration_star
+
+Array_declaration_star ->   Array_declaration
+                        |   ε

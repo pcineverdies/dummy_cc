@@ -7,7 +7,6 @@ use std::fs::read_to_string;
 /// Enum associated to the keywords in the language
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Keyword {
-    Main,
     Return,
     If,
     Else,
@@ -16,6 +15,7 @@ pub enum Keyword {
     And,
     Or,
     True,
+    Const,
     False,
     Continue,
     Break,
@@ -36,7 +36,6 @@ impl Keyword {
     //! or None if it was not recognized
     fn from(input: &str) -> Option<Keyword> {
         match input {
-            "main" => Some(Keyword::Main),
             "return" => Some(Keyword::Return),
             "if" => Some(Keyword::If),
             "else" => Some(Keyword::Else),
@@ -45,6 +44,7 @@ impl Keyword {
             "and" => Some(Keyword::And),
             "or" => Some(Keyword::Or),
             "true" => Some(Keyword::True),
+            "const" => Some(Keyword::Const),
             "false" => Some(Keyword::False),
             "continue" => Some(Keyword::Continue),
             "break" => Some(Keyword::Break),
@@ -201,7 +201,7 @@ impl Tk {
     pub fn to_string(&self) -> String {
         return match self {
             Tk::Bracket(br) => match br {
-                Bracket::LCurly => "{{".to_string(),
+                Bracket::LCurly => "{".to_string(),
                 Bracket::RCurly => "}".to_string(),
                 Bracket::LSquare => "[".to_string(),
                 Bracket::RSquare => "]".to_string(),
@@ -209,7 +209,7 @@ impl Tk {
                 Bracket::RBracket => ")".to_string(),
             },
             Tk::Keyword(kw) => match kw {
-                Keyword::Main => "main".to_string(),
+                Keyword::Const => "const".to_string(),
                 Keyword::Void => "void".to_string(),
                 Keyword::Return => "return".to_string(),
                 Keyword::If => "if".to_string(),
@@ -474,7 +474,7 @@ impl Lexer {
         }
 
         // If the first character is alphabetic, then we have an identifier
-        if self.current_char.is_alphabetic() {
+        if self.current_char.is_alphabetic() || self.current_char == '_' {
             let str = self.read_identifier();
 
             // the identifier might be a keyword
@@ -497,10 +497,7 @@ impl Lexer {
         }
 
         // Invalid token
-        self.lexer_error(format!(
-            "Invalid characrter found -> {}",
-            self.current_line_number
-        ));
+        self.lexer_error(format!("Invalid characrter found ",));
         return None;
     }
 
@@ -616,7 +613,7 @@ impl Lexer {
 
         loop {
             let next_char = self.input_code[self.current_index + 1];
-            if next_char.is_alphanumeric() {
+            if next_char.is_alphanumeric() || next_char == '_' {
                 self.advance_index();
                 str.push(next_char);
             } else {
@@ -731,7 +728,6 @@ impl Lexer {
             line_number,
             file_lines[line_number as usize - 1]
         );
-        eprint!("\t| ");
 
         for i in 0..character_number {
             if i < self.current_first_character - 1 {
