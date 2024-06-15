@@ -3,13 +3,14 @@ use crate::lexer::lexer_impl::Token;
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AstNode {
     NullNode,
+    DeclarationList(Vec<AstNode>),
     PrimaryNode(Token),
     BinaryNode(Token, Box<AstNode>, Box<AstNode>),
     PrefixNode(Token, Box<AstNode>),
     CastNode(Box<AstNode>, Box<AstNode>),
-    TypeNode(Token, u32),
+    TypeNode(bool, Token, u32),
     ProcedureNode(Box<AstNode>, Vec<AstNode>),
-    SelectorNode(Box<AstNode>, Vec<AstNode>),
+    SelectorNode(Box<AstNode>, Box<AstNode>),
     CompoundNode(Vec<AstNode>),
     ExprStatementNode(Box<AstNode>),
     IfNode(Box<AstNode>, Box<AstNode>, Box<AstNode>),
@@ -17,15 +18,14 @@ pub enum AstNode {
     ForNode(Box<AstNode>, Box<AstNode>, Box<AstNode>, Box<AstNode>),
     JumpNode(Token, Box<AstNode>),
     VarDeclNode(Box<AstNode>, Token, Box<AstNode>),
-    ParameterNode(Box<AstNode>, Token),
+    ParameterNode(Token, Box<AstNode>),
     FuncDeclNode(Box<AstNode>, Token, Vec<AstNode>, Box<AstNode>),
-    ArrayDeclNode(Box<AstNode>, Token, Vec<AstNode>),
+    ArrayDeclNode(Box<AstNode>, Token, Box<AstNode>),
 }
 
 use AstNode::*;
 
 impl AstNode {
-
     /// AstNode::new_null
     ///
     /// Create a NullNode
@@ -34,6 +34,16 @@ impl AstNode {
     /// @return [AstNode] Built node
     pub fn new_null() -> AstNode {
         NullNode
+    }
+
+    /// AstNode::new_declaration_list
+    ///
+    /// Create a DeclarationList
+    ///
+    /// @in [...] What is necessary to build the node
+    /// @return [AstNode] Built node
+    pub fn new_declaration_list(an1: &Vec<AstNode>) -> AstNode {
+        DeclarationList(an1.clone())
     }
 
     /// AstNode::new_primary
@@ -82,8 +92,8 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_type(an1: &Token, an2: u32) -> AstNode {
-        TypeNode(an1.clone(), an2)
+    pub fn new_type(an0: bool, an1: &Token, an2: u32) -> AstNode {
+        TypeNode(an0, an1.clone(), an2)
     }
 
     /// AstNode::new_procedure
@@ -102,8 +112,8 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_selector(an1: &AstNode, an2: &Vec<AstNode>) -> AstNode {
-        SelectorNode(Box::new(an1.clone()), an2.clone())
+    pub fn new_selector(an1: &AstNode, an2: &AstNode) -> AstNode {
+        SelectorNode(Box::new(an1.clone()), Box::new(an2.clone()))
     }
 
     /// AstNode::new_compound
@@ -175,6 +185,16 @@ impl AstNode {
         JumpNode(an1.clone(), Box::new(an2.clone()))
     }
 
+    /// AstNode::new_parameter
+    ///
+    /// Create a ParameterNode
+    ///
+    /// @in [...] What is necessary to build the node
+    /// @return [AstNode] Built node
+    pub fn new_parameter(an1: &Token, an2: &AstNode) -> AstNode {
+        ParameterNode(an1.clone(), Box::new(an2.clone()))
+    }
+
     /// AstNode::new_var_decl
     ///
     /// Create a VarDeclNode
@@ -206,8 +226,8 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_array_decl(an1: &AstNode, an2: &Token, an3: &Vec<AstNode>) -> AstNode {
-        ArrayDeclNode(Box::new(an1.clone()), an2.clone(), an3.clone())
+    pub fn new_array_decl(an1: &AstNode, an2: &Token, an3: &AstNode) -> AstNode {
+        ArrayDeclNode(Box::new(an1.clone()), an2.clone(), Box::new(an3.clone()))
     }
 
     fn get_indent(&self, indent: u32) -> String {
@@ -257,7 +277,10 @@ impl AstNode {
                     expr.to_string(0).as_str()
                 );
             }
-            TypeNode(tt, counter) => {
+            TypeNode(c, tt, counter) => {
+                if *c {
+                    result += "const ";
+                }
                 result += &format!("{}", tt.tk.to_string().as_str(),);
                 for _ in 0..*counter {
                     result += "*";
@@ -274,18 +297,20 @@ impl AstNode {
                 result += ")";
             }
             SelectorNode(expr, args) => {
-                result += &format!("({})", expr.to_string(0).as_str(),);
-                for i in 0..args.len() {
-                    result += &format!("[{}]", args[i].to_string(0).as_str(),);
-                }
+                result += &format!("(({})", expr.to_string(0).as_str(),);
+                result += &format!("[{}])", args.to_string(0).as_str(),);
             }
             CompoundNode(value) => {
-                result += "{\n";
-                for s in value {
-                    result += &s.to_string(indent + 1);
+                if value.len() == 0 {
+                    result += "{}\n";
+                } else {
+                    result += "{\n";
+                    for s in value {
+                        result += &s.to_string(indent + 1);
+                    }
+                    result += &self.get_indent(indent);
+                    result += "}\n";
                 }
-                result += &self.get_indent(indent);
-                result += "}\n";
             }
             ExprStatementNode(expr) => {
                 if **expr != NullNode {
@@ -295,26 +320,26 @@ impl AstNode {
             }
             IfNode(expr, statements_if, statements_else) => {
                 result += &format!(
-                    "if({}) {}",
+                    "if({}){}",
                     &expr.to_string(0).as_str(),
                     &statements_if.to_string(indent).as_str()
                 );
                 let else_print = statements_else.to_string(indent);
                 if else_print.len() as u32 > (indent as u32) * 2 {
                     result += &self.get_indent(indent);
-                    result += &format!("else {}", else_print);
+                    result += &format!("else{}", else_print);
                 }
             }
             WhileNode(expr, statements) => {
                 result += &format!(
-                    "while({}) {}",
+                    "while({}){}",
                     &expr.to_string(0).as_str(),
                     &statements.to_string(indent).as_str()
                 );
             }
             ForNode(decl, expr, ass, statements) => {
                 result += &format!(
-                    "for({}; {}; {}) {}",
+                    "for({}; {}; {}){}",
                     &decl.to_string(0).as_str(),
                     &expr.to_string(0).as_str(),
                     &ass.to_string(0).as_str(),
@@ -342,7 +367,7 @@ impl AstNode {
                 if **expr == NullNode {
                     result += &format!(";\n");
                 } else {
-                    result += &format!("{};\n", expr.to_string(0).as_str(),);
+                    result += &format!(" = {};\n", expr.to_string(0).as_str(),);
                 }
             }
             FuncDeclNode(tt, id, args, body) => {
@@ -364,21 +389,24 @@ impl AstNode {
                     result += &format!("{}", body.to_string(indent));
                 }
             }
-            ParameterNode(tt, id) => {
+            ParameterNode(id, tt) => {
                 result += &format!(
                     "{} {}",
                     tt.to_string(0).as_str(),
                     id.tk.to_string().as_str()
                 );
             }
-            ArrayDeclNode(tt, id, args) => {
+            ArrayDeclNode(tt, id, arg) => {
                 result += &format!(
                     "{} {}",
                     tt.to_string(0).as_str(),
                     id.tk.to_string().as_str(),
                 );
-                for i in 0..args.len() {
-                    result += &format!("[{}]", args[i].to_string(0).as_str(),);
+                result += &format!("[{}];\n", arg.to_string(0).as_str(),);
+            }
+            DeclarationList(list) => {
+                for l in list {
+                    result += &format!("{}", l.to_string(indent).as_str())
                 }
             }
         }

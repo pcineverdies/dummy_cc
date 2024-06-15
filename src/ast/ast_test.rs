@@ -34,6 +34,7 @@ mod test {
         });
 
         let ast_type = AstNode::new_type(
+            true,
             &Token {
                 tk: Tk::Keyword(Keyword::I8),
                 line_number: 0,
@@ -97,15 +98,15 @@ mod test {
 
         assert_eq!(
             if_decl2.to_string(0),
-            "if(((-b) + ((i8***)6))) {
-  if((a + b)) {
-    i8*** var3;
-    i8*** var3;
+            "if(((-b) + ((const i8***)6))){
+  if((a + b)){
+    const i8*** var = 3;
+    const i8*** var = 3;
   }
 }
-else {
-  i8*** var3;
-  i8*** var3;
+else{
+  const i8*** var = 3;
+  const i8*** var = 3;
 }
 "
         );

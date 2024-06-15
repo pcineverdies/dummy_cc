@@ -112,7 +112,7 @@ Declaration ->  Type_declaration identifier stop
              |  Type_declaration identifier =  Expression stop
              |  Type_declaration identifier ( Parameter_list ) stop
              |  Type_declaration identifier ( Parameter_list ) Compound_statement
-             |  Type_declaration identifier Array_declaration stop
+             |  Type_declaration identifier [ Expression ] stop
 
 Type_declaration -> Optional_const Pointer_type
 
@@ -123,8 +123,3 @@ Parameter_list ->   Type_declaration identifier Parameter_list_star
 
 Parameter_list_star ->  , Parameter_list
                      |  ε
-
-Array_declaration ->    [ Logical_expression ] Array_declaration_star
-
-Array_declaration_star ->   Array_declaration
-                        |   ε
