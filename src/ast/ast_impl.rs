@@ -1,26 +1,69 @@
 use crate::lexer::lexer_impl::Token;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum AstNode {
+    ArrayDeclNode(Box<AstNodeWrapper>, Token, Box<AstNodeWrapper>),
+    BinaryNode(Token, Box<AstNodeWrapper>, Box<AstNodeWrapper>),
+    CastNode(Box<AstNodeWrapper>, Box<AstNodeWrapper>),
+    CompoundNode(Vec<AstNodeWrapper>),
+    DeclarationList(Vec<AstNodeWrapper>),
+    ExprStatementNode(Box<AstNodeWrapper>),
+    ForNode(
+        Box<AstNodeWrapper>,
+        Box<AstNodeWrapper>,
+        Box<AstNodeWrapper>,
+        Box<AstNodeWrapper>,
+    ),
+    FuncDeclNode(
+        Box<AstNodeWrapper>,
+        Token,
+        Vec<AstNodeWrapper>,
+        Box<AstNodeWrapper>,
+    ),
+    IfNode(
+        Box<AstNodeWrapper>,
+        Box<AstNodeWrapper>,
+        Box<AstNodeWrapper>,
+    ),
+    JumpNode(Token, Box<AstNodeWrapper>),
+    #[default]
     NullNode,
-    DeclarationList(Vec<AstNode>),
+    ParameterNode(Token, Box<AstNodeWrapper>),
+    PrefixNode(Token, Box<AstNodeWrapper>),
     PrimaryNode(Token),
-    BinaryNode(Token, Box<AstNode>, Box<AstNode>),
-    PrefixNode(Token, Box<AstNode>),
-    CastNode(Box<AstNode>, Box<AstNode>),
+    ProcedureNode(Box<AstNodeWrapper>, Vec<AstNodeWrapper>),
+    SelectorNode(Box<AstNodeWrapper>, Box<AstNodeWrapper>),
     TypeNode(bool, Token, u32),
-    ProcedureNode(Box<AstNode>, Vec<AstNode>),
-    SelectorNode(Box<AstNode>, Box<AstNode>),
-    CompoundNode(Vec<AstNode>),
-    ExprStatementNode(Box<AstNode>),
-    IfNode(Box<AstNode>, Box<AstNode>, Box<AstNode>),
-    WhileNode(Box<AstNode>, Box<AstNode>),
-    ForNode(Box<AstNode>, Box<AstNode>, Box<AstNode>, Box<AstNode>),
-    JumpNode(Token, Box<AstNode>),
-    VarDeclNode(Box<AstNode>, Token, Box<AstNode>),
-    ParameterNode(Token, Box<AstNode>),
-    FuncDeclNode(Box<AstNode>, Token, Vec<AstNode>, Box<AstNode>),
-    ArrayDeclNode(Box<AstNode>, Token, Box<AstNode>),
+    VarDeclNode(Box<AstNodeWrapper>, Token, Box<AstNodeWrapper>),
+    WhileNode(Box<AstNodeWrapper>, Box<AstNodeWrapper>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum TypeNative {
+    U32,
+    U16,
+    U8,
+    I32,
+    I16,
+    I8,
+    Void,
+    #[default]
+    Null,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub struct SourceReference {
+    pub init_line: u32,
+    pub init_char: u32,
+    pub last_char: u32,
+    pub last_line: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub struct AstNodeWrapper {
+    pub node: AstNode,
+    pub source_ref: SourceReference,
+    pub type_ref: (TypeNative, u32),
 }
 
 use AstNode::*;
@@ -42,7 +85,7 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_declaration_list(an1: &Vec<AstNode>) -> AstNode {
+    pub fn new_declaration_list(an1: &Vec<AstNodeWrapper>) -> AstNode {
         DeclarationList(an1.clone())
     }
 
@@ -62,7 +105,7 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_binary(an1: &Token, an2: &AstNode, an3: &AstNode) -> AstNode {
+    pub fn new_binary(an1: &Token, an2: &AstNodeWrapper, an3: &AstNodeWrapper) -> AstNode {
         BinaryNode(an1.clone(), Box::new(an2.clone()), Box::new(an3.clone()))
     }
 
@@ -72,7 +115,7 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_prefix(an1: &Token, an2: &AstNode) -> AstNode {
+    pub fn new_prefix(an1: &Token, an2: &AstNodeWrapper) -> AstNode {
         PrefixNode(an1.clone(), Box::new(an2.clone()))
     }
 
@@ -82,7 +125,7 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_cast(an1: &AstNode, an2: &AstNode) -> AstNode {
+    pub fn new_cast(an1: &AstNodeWrapper, an2: &AstNodeWrapper) -> AstNode {
         CastNode(Box::new(an1.clone()), Box::new(an2.clone()))
     }
 
@@ -102,7 +145,7 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_procedure(an1: &AstNode, an2: &Vec<AstNode>) -> AstNode {
+    pub fn new_procedure(an1: &AstNodeWrapper, an2: &Vec<AstNodeWrapper>) -> AstNode {
         ProcedureNode(Box::new(an1.clone()), an2.clone())
     }
 
@@ -112,7 +155,7 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_selector(an1: &AstNode, an2: &AstNode) -> AstNode {
+    pub fn new_selector(an1: &AstNodeWrapper, an2: &AstNodeWrapper) -> AstNode {
         SelectorNode(Box::new(an1.clone()), Box::new(an2.clone()))
     }
 
@@ -122,7 +165,7 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_compound(an1: &Vec<AstNode>) -> AstNode {
+    pub fn new_compound(an1: &Vec<AstNodeWrapper>) -> AstNode {
         CompoundNode(an1.clone())
     }
 
@@ -132,7 +175,7 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_expr_statement(an1: &AstNode) -> AstNode {
+    pub fn new_expr_statement(an1: &AstNodeWrapper) -> AstNode {
         ExprStatementNode(Box::new(an1.clone()))
     }
 
@@ -142,7 +185,7 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_if(an1: &AstNode, an2: &AstNode, an3: &AstNode) -> AstNode {
+    pub fn new_if(an1: &AstNodeWrapper, an2: &AstNodeWrapper, an3: &AstNodeWrapper) -> AstNode {
         IfNode(
             Box::new(an1.clone()),
             Box::new(an2.clone()),
@@ -156,7 +199,7 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_while(an1: &AstNode, an2: &AstNode) -> AstNode {
+    pub fn new_while(an1: &AstNodeWrapper, an2: &AstNodeWrapper) -> AstNode {
         WhileNode(Box::new(an1.clone()), Box::new(an2.clone()))
     }
 
@@ -166,7 +209,12 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_for(an1: &AstNode, an2: &AstNode, an3: &AstNode, an4: &AstNode) -> AstNode {
+    pub fn new_for(
+        an1: &AstNodeWrapper,
+        an2: &AstNodeWrapper,
+        an3: &AstNodeWrapper,
+        an4: &AstNodeWrapper,
+    ) -> AstNode {
         ForNode(
             Box::new(an1.clone()),
             Box::new(an2.clone()),
@@ -181,7 +229,7 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_jump(an1: &Token, an2: &AstNode) -> AstNode {
+    pub fn new_jump(an1: &Token, an2: &AstNodeWrapper) -> AstNode {
         JumpNode(an1.clone(), Box::new(an2.clone()))
     }
 
@@ -191,7 +239,7 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_parameter(an1: &Token, an2: &AstNode) -> AstNode {
+    pub fn new_parameter(an1: &Token, an2: &AstNodeWrapper) -> AstNode {
         ParameterNode(an1.clone(), Box::new(an2.clone()))
     }
 
@@ -201,7 +249,7 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_var_decl(an1: &AstNode, an2: &Token, an3: &AstNode) -> AstNode {
+    pub fn new_var_decl(an1: &AstNodeWrapper, an2: &Token, an3: &AstNodeWrapper) -> AstNode {
         VarDeclNode(Box::new(an1.clone()), an2.clone(), Box::new(an3.clone()))
     }
 
@@ -211,7 +259,12 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_func_decl(an1: &AstNode, an2: &Token, an3: &Vec<AstNode>, an4: &AstNode) -> AstNode {
+    pub fn new_func_decl(
+        an1: &AstNodeWrapper,
+        an2: &Token,
+        an3: &Vec<AstNodeWrapper>,
+        an4: &AstNodeWrapper,
+    ) -> AstNode {
         FuncDeclNode(
             Box::new(an1.clone()),
             an2.clone(),
@@ -226,10 +279,12 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_array_decl(an1: &AstNode, an2: &Token, an3: &AstNode) -> AstNode {
+    pub fn new_array_decl(an1: &AstNodeWrapper, an2: &Token, an3: &AstNodeWrapper) -> AstNode {
         ArrayDeclNode(Box::new(an1.clone()), an2.clone(), Box::new(an3.clone()))
     }
+}
 
+impl AstNodeWrapper {
     fn get_indent(&self, indent: u32) -> String {
         let mut result = String::from("");
         for _ in 0..indent {
@@ -238,7 +293,7 @@ impl AstNode {
         result
     }
 
-    /// AstNode::to_string
+    /// AstNodeWrapper::to_string
     ///
     /// Transform the current AstNode to a string, exploiting the function in a recursive fashion.
     /// The parameter indent is used to indicate how much to indent, so that the final result is
@@ -248,11 +303,11 @@ impl AstNode {
     /// @return [String] Result of the string conversion
     pub fn to_string(&self, indent: u32) -> String {
         let mut result = String::from("");
-        match self {
+        match self.node {
             AstNode::CompoundNode(_) => {}
             _ => result += &self.get_indent(indent),
         }
-        match self {
+        match &self.node {
             NullNode => {}
             PrimaryNode(value) => result += &value.tk.to_string(),
             BinaryNode(tk, expr1, expr2) => {
@@ -313,7 +368,7 @@ impl AstNode {
                 }
             }
             ExprStatementNode(expr) => {
-                if **expr != NullNode {
+                if expr.node != NullNode {
                     result += &format!("{}", expr.to_string(0).as_str(),);
                 }
                 result += ";\n";
@@ -346,7 +401,7 @@ impl AstNode {
                     &statements.to_string(indent).as_str()
                 );
             }
-            JumpNode(kw, expr) => match **expr {
+            JumpNode(kw, expr) => match expr.node {
                 NullNode => {
                     result += &format!("{};\n", kw.tk.to_string().as_str(),);
                 }
@@ -364,7 +419,7 @@ impl AstNode {
                     tt.to_string(0).as_str(),
                     id.tk.to_string().as_str()
                 );
-                if **expr == NullNode {
+                if expr.node == NullNode {
                     result += &format!(";\n");
                 } else {
                     result += &format!(" = {};\n", expr.to_string(0).as_str(),);
@@ -383,7 +438,7 @@ impl AstNode {
                     }
                 }
                 result += &format!(")");
-                if **body == NullNode {
+                if body.node == NullNode {
                     result += &format!(";\n");
                 } else {
                     result += &format!("{}", body.to_string(indent));
@@ -412,5 +467,47 @@ impl AstNode {
         }
 
         return result;
+    }
+}
+
+impl SourceReference {
+    pub fn from_token(tk: &Token) -> SourceReference {
+        SourceReference {
+            last_line: tk.line_number,
+            init_line: tk.line_number,
+            last_char: tk.last_character,
+            init_char: tk.first_character,
+        }
+    }
+
+    pub fn merge(sr1: &SourceReference, sr2: &SourceReference) -> SourceReference {
+        let mut result = SourceReference {
+            ..Default::default()
+        };
+        if sr1.init_line < sr2.init_line {
+            result.init_line = sr1.init_line;
+            result.init_char = sr1.init_char;
+            result.last_line = sr2.last_line;
+            result.last_char = sr2.last_char;
+        } else if sr1.init_line > sr2.init_line {
+            result.init_line = sr2.init_line;
+            result.init_char = sr2.init_char;
+            result.last_line = sr1.last_line;
+            result.last_char = sr1.last_char;
+        } else {
+            if sr1.init_char < sr2.init_char {
+                result.init_line = sr1.init_line;
+                result.init_char = sr1.init_char;
+                result.last_line = sr2.last_line;
+                result.last_char = sr2.last_char;
+            } else {
+                result.init_line = sr2.init_line;
+                result.init_char = sr2.init_char;
+                result.last_line = sr1.last_line;
+                result.last_char = sr1.last_char;
+            }
+        }
+
+        result
     }
 }
