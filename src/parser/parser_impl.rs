@@ -29,7 +29,8 @@ enum ParserResult {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum ParserErrorType {
     ScopeError,
-    TokenError,
+    TokenError(String),
+    NodeError(AstNodeWrapper),
 }
 
 use AstNode::*;
@@ -109,7 +110,7 @@ impl Parser {
         match self.external_declaration_list() {
             Match(node) => {
                 if self.get_current() != Tk::EOF {
-                    self.parser_error("EOF", TokenError);
+                    self.parser_error(TokenError("EOF".to_string()));
                 } else if self.errors_counter == 0 {
                     return Some(node);
                 }
@@ -198,7 +199,7 @@ impl Parser {
                             match self.expression() {
                                 Match(expr) => {
                                     if self.get_current() != Tk::Semicolon {
-                                        return self.parser_error(";", TokenError);
+                                        return self.parser_error(TokenError(";".to_string()));
                                     }
                                     let token = self.get_current_token();
                                     self.advance();
@@ -221,7 +222,7 @@ impl Parser {
                                 Match(list) => {
                                     let (body, source_ref);
                                     if self.get_current() != Tk::Bracket(RBracket) {
-                                        return self.parser_error(")", TokenError);
+                                        return self.parser_error(TokenError(")".to_string()));
                                     }
                                     self.advance();
                                     if self.get_current() == Tk::Semicolon {
@@ -266,11 +267,11 @@ impl Parser {
                             match self.expression() {
                                 Match(node) => {
                                     if self.get_current() != Tk::Bracket(RSquare) {
-                                        return self.parser_error("]", TokenError);
+                                        return self.parser_error(TokenError("]".to_string()));
                                     }
                                     self.advance();
                                     if self.get_current() != Tk::Semicolon {
-                                        return self.parser_error(";", TokenError);
+                                        return self.parser_error(TokenError(";".to_string()));
                                     }
                                     let token = self.get_current_token();
                                     let source_ref = SourceReference::merge(
@@ -287,11 +288,11 @@ impl Parser {
                                 _ => Fail,
                             }
                         }
-                        _ => return self.parser_error("", TokenError),
+                        _ => return self.parser_error(TokenError(String::from(""))),
                     }
                 }
                 _ => {
-                    return self.parser_error("identifier", TokenError);
+                    return self.parser_error(TokenError("identifier".to_string()));
                 }
             },
             _ => Fail,
@@ -378,7 +379,7 @@ impl Parser {
                         ..Default::default()
                     });
                 }
-                _ => self.parser_error("identifier", TokenError),
+                _ => self.parser_error(TokenError("identifier".to_string())),
             },
             _ => Fail,
         }
@@ -397,7 +398,7 @@ impl Parser {
 
         let mut result: Vec<AstNodeWrapper> = Vec::new();
         if self.get_current() != Tk::Bracket(LCurly) {
-            return self.parser_error("{", TokenError);
+            return self.parser_error(TokenError("{".to_string()));
         }
         let token_l = self.get_current_token();
         self.advance();
@@ -422,7 +423,7 @@ impl Parser {
             }
         }
         if self.get_current() != Tk::Bracket(RCurly) {
-            return self.parser_error("}", TokenError);
+            return self.parser_error(TokenError("}".to_string()));
         }
         let token_r = self.get_current_token();
         self.advance();
@@ -504,7 +505,7 @@ impl Parser {
             Tk::Keyword(Continue) | Tk::Keyword(Break) => {
                 self.advance();
                 if self.get_current() != Tk::Semicolon {
-                    return self.parser_error(";", TokenError);
+                    return self.parser_error(TokenError(";".to_string()));
                 }
                 let semicolon = self.get_current_token();
                 self.advance();
@@ -528,7 +529,7 @@ impl Parser {
                 match self.optional_expression() {
                     Match(expr) => {
                         if self.get_current() != Tk::Semicolon {
-                            return self.parser_error(";", TokenError);
+                            return self.parser_error(TokenError(";".to_string()));
                         }
                         let semicolon = self.get_current_token();
                         self.advance();
@@ -545,7 +546,7 @@ impl Parser {
                     _ => Fail,
                 }
             }
-            _ => return self.parser_error("", TokenError),
+            _ => return self.parser_error(TokenError("".to_string())),
         }
     }
 
@@ -564,25 +565,25 @@ impl Parser {
                 let token = self.get_current_token();
                 self.advance();
                 if self.get_current() != Tk::Bracket(LBracket) {
-                    return self.parser_error("(", TokenError);
+                    return self.parser_error(TokenError("(".to_string()));
                 }
                 self.advance();
                 match self.optional_expression() {
                     Match(expr1) => {
                         if self.get_current() != Tk::Semicolon {
-                            return self.parser_error(";", TokenError);
+                            return self.parser_error(TokenError(";".to_string()));
                         }
                         self.advance();
                         match self.optional_expression() {
                             Match(expr2) => {
                                 if self.get_current() != Tk::Semicolon {
-                                    return self.parser_error(";", TokenError);
+                                    return self.parser_error(TokenError(";".to_string()));
                                 }
                                 self.advance();
                                 match self.optional_expression() {
                                     Match(expr3) => {
                                         if self.get_current() != Tk::Bracket(RBracket) {
-                                            return self.parser_error(")", TokenError);
+                                            return self.parser_error(TokenError(")".to_string()));
                                         }
                                         self.advance();
                                         match self.compound_statement() {
@@ -591,13 +592,14 @@ impl Parser {
                                                     &SourceReference::from_token(&token),
                                                     &body.source_ref,
                                                 );
-                                                return Match(AstNodeWrapper {
+                                                let result = AstNodeWrapper {
                                                     node: AstNode::new_for(
                                                         &expr1, &expr2, &expr3, &body,
                                                     ),
                                                     source_ref,
                                                     ..Default::default()
-                                                });
+                                                };
+                                                return Match(result);
                                             }
                                             _ => Fail,
                                         }
@@ -636,16 +638,16 @@ impl Parser {
                                         _ => Fail,
                                     }
                                 }
-                                _ => return self.parser_error(")", TokenError),
+                                _ => return self.parser_error(TokenError(")".to_string())),
                             },
                             _ => Fail,
                         }
                     }
-                    _ => return self.parser_error("(", TokenError),
+                    _ => return self.parser_error(TokenError("(".to_string())),
                 }
             }
             _ => {
-                return self.parser_error("", TokenError);
+                return self.parser_error(TokenError("".to_string()));
             }
         }
     }
@@ -665,13 +667,13 @@ impl Parser {
                 let token = self.get_current_token();
                 self.advance();
                 if self.get_current() != Tk::Bracket(LBracket) {
-                    self.parser_error("(", TokenError);
+                    self.parser_error(TokenError("(".to_string()));
                 }
                 self.advance();
                 match self.expression() {
                     Match(expr) => {
                         if self.get_current() != Tk::Bracket(RBracket) {
-                            self.parser_error(")", TokenError);
+                            self.parser_error(TokenError(")".to_string()));
                         }
                         self.advance();
                         match self.compound_statement() {
@@ -695,7 +697,7 @@ impl Parser {
                     _ => return Fail,
                 }
             }
-            _ => self.parser_error("if", TokenError),
+            _ => self.parser_error(TokenError("if".to_string())),
         }
     }
 
@@ -755,7 +757,7 @@ impl Parser {
                         ..Default::default()
                     });
                 }
-                return self.parser_error(";", TokenError);
+                return self.parser_error(TokenError(";".to_string()));
             }
             _ => return Fail,
         }
@@ -889,7 +891,7 @@ impl Parser {
                     && self.get_current() != Tk::Bracket(RSquare)
                     && self.get_current() != Tk::Operator(Comma)
                 {
-                    return self.parser_error("", TokenError);
+                    return self.parser_error(TokenError("".to_string()));
                 }
                 Match(result)
             }
@@ -949,7 +951,7 @@ impl Parser {
                     && self.get_current() != Tk::Keyword(And)
                     && self.get_current() != Tk::Keyword(Or)
                 {
-                    return self.parser_error("", TokenError);
+                    return self.parser_error(TokenError("".to_string()));
                 }
                 Match(result)
             }
@@ -1015,7 +1017,7 @@ impl Parser {
                     && self.get_current() != Tk::Operator(EqualCompare)
                     && self.get_current() != Tk::Operator(DiffCompare)
                 {
-                    return self.parser_error("", TokenError);
+                    return self.parser_error(TokenError("".to_string()));
                 }
                 Match(result)
             }
@@ -1081,7 +1083,7 @@ impl Parser {
                     && self.get_current() != Tk::Operator(LECompare)
                     && self.get_current() != Tk::Operator(GECompare)
                 {
-                    return self.parser_error("", TokenError);
+                    return self.parser_error(TokenError("".to_string()));
                 }
                 Match(result)
             }
@@ -1149,7 +1151,7 @@ impl Parser {
                     && self.get_current() != Tk::Operator(LShift)
                     && self.get_current() != Tk::Operator(RShift)
                 {
-                    return self.parser_error("", TokenError);
+                    return self.parser_error(TokenError("".to_string()));
                 }
                 Match(result)
             }
@@ -1221,7 +1223,7 @@ impl Parser {
                     && self.get_current() != Tk::Operator(Plus)
                     && self.get_current() != Tk::Operator(Minus)
                 {
-                    return self.parser_error("", TokenError);
+                    return self.parser_error(TokenError("".to_string()));
                 }
                 Match(result)
             }
@@ -1264,7 +1266,7 @@ impl Parser {
                                     _ => return Fail,
                                 }
                             }
-                            _ => return self.parser_error(")", TokenError),
+                            _ => return self.parser_error(TokenError(")".to_string())),
                         },
                         Unmatch => {
                             self.previous();
@@ -1302,6 +1304,7 @@ impl Parser {
         }
         match self.type_native() {
             Match(node) => {
+                source_ref = SourceReference::merge(&source_ref, &node.source_ref);
                 while self.get_current() == Tk::Operator(Asterisk) {
                     pointer_counter += 1;
                     source_ref = SourceReference::merge(
@@ -1312,7 +1315,7 @@ impl Parser {
                 }
                 match self.get_current() {
                     Tk::Identifier(_) | Tk::Bracket(RBracket) => {}
-                    _ => return self.parser_error("", TokenError),
+                    _ => return self.parser_error(TokenError("".to_string())),
                 }
                 match node.node {
                     AstNode::TypeNode(_, tt, _) => {
@@ -1350,7 +1353,7 @@ impl Parser {
                 ..Default::default()
             });
         } else {
-            return self.parser_error("type", TokenError);
+            return self.parser_error(TokenError("type".to_string()));
         }
     }
 
@@ -1485,7 +1488,7 @@ impl Parser {
                                 ..Default::default()
                             });
                         }
-                        _ => return self.parser_error("]", TokenError),
+                        _ => return self.parser_error(TokenError("]".to_string())),
                     },
                     _ => Fail,
                 }
@@ -1543,7 +1546,7 @@ impl Parser {
             | Tk::Operator(Assign)
             | Tk::Operator(Plus)
             | Tk::Operator(Minus) => return Unmatch,
-            _ => return self.parser_error("", TokenError),
+            _ => return self.parser_error(TokenError("".to_string())),
         }
     }
 
@@ -1588,12 +1591,12 @@ impl Parser {
                             self.advance();
                             return Match(node);
                         }
-                        _ => return self.parser_error(")", TokenError),
+                        _ => return self.parser_error(TokenError(")".to_string())),
                     },
                     _ => return Fail,
                 }
             }
-            _ => return self.parser_error("", TokenError),
+            _ => return self.parser_error(TokenError("".to_string())),
         }
     }
 
@@ -1638,7 +1641,7 @@ impl Parser {
                         ..Default::default()
                     });
                 }
-                return self.parser_error(")", TokenError);
+                return self.parser_error(TokenError(")".to_string()));
             }
             _ => return Fail,
         }
@@ -1648,10 +1651,9 @@ impl Parser {
     ///
     /// Generate an error from the parser
     ///
-    /// @in expected [&str]: string to give some information about the error
     /// @in error [ParserErrorType]: type of error to handle
     /// @return [ParseResult]: Always Fail
-    fn parser_error(&mut self, expected: &str, error: ParserErrorType) -> ParserResult {
+    fn parser_error(&mut self, error: ParserErrorType) -> ParserResult {
         if self.skip_erorrs {
             return Fail;
         }
@@ -1667,7 +1669,7 @@ impl Parser {
         );
 
         match error {
-            TokenError => {
+            TokenError(expected) => {
                 if expected.len() != 0 {
                     eprintln!(
                         "\x1b[91merror parser: \x1b[0mexpected `\x1b[34m{}\x1b[0m`, found `\x1b[34m{}\x1b[0m`",
@@ -1680,30 +1682,62 @@ impl Parser {
                         self.get_current()
                     );
                 }
+                if line_number as usize > file_lines.len() {
+                    return Fail;
+                }
+
+                eprint!(
+                    "{}\t| {}\n\t| ",
+                    line_number,
+                    file_lines[line_number as usize - 1]
+                );
+
+                for i in 0..last_character {
+                    if i < first_character - 1 {
+                        eprint!(" ");
+                    } else if i == first_character - 1 {
+                        eprint!("\x1b[91m^\x1b[0m");
+                    } else {
+                        eprint!("\x1b[91m~\x1b[0m");
+                    }
+                }
+                eprintln!("");
+            }
+            NodeError(node) => {
+                println!("");
+                for line_number in node.source_ref.init_line..=node.source_ref.last_line {
+                    let line = &file_lines[line_number as usize - 1];
+                    eprint!("{}\t| {}\n\t| ", line_number, line);
+                    for i in 0..line.len() {
+                        if node.source_ref.init_line == node.source_ref.last_line {
+                            if i >= node.source_ref.init_char as usize - 1
+                                && i <= node.source_ref.last_char as usize - 1
+                            {
+                                eprint!("\x1b[91m^\x1b[0m");
+                            } else {
+                                eprint!(" ");
+                            }
+                        } else if line_number == node.source_ref.init_line {
+                            if i < node.source_ref.init_char as usize - 1 {
+                                eprint!(" ");
+                            } else {
+                                eprint!("\x1b[91m^\x1b[0m");
+                            }
+                        } else if line_number == node.source_ref.last_line {
+                            if i <= node.source_ref.last_char as usize - 1 {
+                                eprint!("\x1b[91m^\x1b[0m");
+                            } else {
+                                eprint!(" ");
+                            }
+                        } else {
+                            eprint!("\x1b[91m^\x1b[0m");
+                        }
+                    }
+                    eprintln!("");
+                }
             }
             _ => {}
         }
-        if line_number as usize > file_lines.len() {
-            return Fail;
-        }
-
-        eprint!(
-            "{}\t| {}\n\t| ",
-            line_number,
-            file_lines[line_number as usize - 1]
-        );
-
-        for i in 0..last_character {
-            if i < first_character - 1 {
-                eprint!(" ");
-            } else if i == first_character - 1 {
-                eprint!("\x1b[91m^\x1b[0m");
-            } else {
-                eprint!("\x1b[91m~\x1b[0m");
-            }
-        }
-        eprintln!("");
-
         return Fail;
     }
 

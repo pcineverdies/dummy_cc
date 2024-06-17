@@ -285,6 +285,12 @@ impl AstNode {
 }
 
 impl AstNodeWrapper {
+    /// AstNodeWrapper::get_indent
+    ///
+    /// Produce a string with the correct number of spaces with respect to the required indentation
+    ///
+    /// @in indent[u32] How much to indent
+    /// @return [String] Result of the identation
     fn get_indent(&self, indent: u32) -> String {
         let mut result = String::from("");
         for _ in 0..indent {
@@ -471,6 +477,12 @@ impl AstNodeWrapper {
 }
 
 impl SourceReference {
+    /// AstNodeWrapper::from_token
+    ///
+    /// Create a source file reference object starting from a token
+    ///
+    /// @in tk[&Token] Token to use to get the source file reference
+    /// @return [SourceReference] Result of creation
     pub fn from_token(tk: &Token) -> SourceReference {
         SourceReference {
             last_line: tk.line_number,
@@ -480,26 +492,37 @@ impl SourceReference {
         }
     }
 
+    /// AstNodeWrapper::merge
+    ///
+    /// Create a source file reference object mergint two of them
+    ///
+    /// @in sr1[&SourceReference] First source reference object
+    /// @in sr1[&SourceReference] Second source reference object
+    /// @return [SourceReference] Result of creation
     pub fn merge(sr1: &SourceReference, sr2: &SourceReference) -> SourceReference {
         let mut result = SourceReference {
             ..Default::default()
         };
+        // The first source reference object starts before the second one
         if sr1.init_line < sr2.init_line {
             result.init_line = sr1.init_line;
             result.init_char = sr1.init_char;
             result.last_line = sr2.last_line;
             result.last_char = sr2.last_char;
+        // The second source reference object starts before the first one
         } else if sr1.init_line > sr2.init_line {
             result.init_line = sr2.init_line;
             result.init_char = sr2.init_char;
             result.last_line = sr1.last_line;
             result.last_char = sr1.last_char;
         } else {
+            // The first source reference object starts before the second one
             if sr1.init_char < sr2.init_char {
                 result.init_line = sr1.init_line;
                 result.init_char = sr1.init_char;
                 result.last_line = sr2.last_line;
                 result.last_char = sr2.last_char;
+            // The second source reference object starts before the first one
             } else {
                 result.init_line = sr2.init_line;
                 result.init_char = sr2.init_char;

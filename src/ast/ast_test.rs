@@ -2,97 +2,145 @@ mod test {
 
     #[test]
     fn ast_test() {
-        use crate::ast::ast_impl::AstNode;
+        use crate::ast::ast_impl::{AstNode, AstNodeWrapper};
         use crate::lexer::lexer_impl::{Keyword, Operator, Tk, Token};
 
-        let ast_expr1 = AstNode::new_primary(&Token {
-            tk: Tk::Identifier(String::from("a")),
-            line_number: 0,
-            last_character: 0,
-            first_character: 0,
-        });
-
-        let ast_expr4 = AstNode::new_primary(&Token {
-            tk: Tk::Identifier(String::from("b")),
-            line_number: 0,
-            last_character: 0,
-            first_character: 0,
-        });
-
-        let ast_expr2 = AstNode::new_primary(&Token {
-            tk: Tk::IntegerLiteral(3),
-            line_number: 0,
-            last_character: 0,
-            first_character: 0,
-        });
-
-        let ast_expr5 = AstNode::new_primary(&Token {
-            tk: Tk::IntegerLiteral(6),
-            line_number: 0,
-            last_character: 0,
-            first_character: 0,
-        });
-
-        let ast_type = AstNode::new_type(
-            true,
-            &Token {
-                tk: Tk::Keyword(Keyword::I8),
+        let ast_expr1 = AstNodeWrapper {
+            node: AstNode::new_primary(&Token {
+                tk: Tk::Identifier(String::from("a")),
                 line_number: 0,
                 last_character: 0,
                 first_character: 0,
-            },
-            3,
-        );
+            }),
+            ..Default::default()
+        };
 
-        let ast_expr51 = AstNode::new_cast(&ast_type, &ast_expr5);
-
-        let ast_expr3 = AstNode::new_binary(
-            &Token {
-                tk: Tk::Operator(Operator::Plus),
+        let ast_expr4 = AstNodeWrapper {
+            node: AstNode::new_primary(&Token {
+                tk: Tk::Identifier(String::from("b")),
                 line_number: 0,
                 last_character: 0,
                 first_character: 0,
-            },
-            &ast_expr1,
-            &ast_expr4,
-        );
+            }),
+            ..Default::default()
+        };
 
-        let ast_expr7 = AstNode::new_prefix(
-            &Token {
-                tk: Tk::Operator(Operator::Minus),
+        let ast_expr2 = AstNodeWrapper {
+            node: AstNode::new_primary(&Token {
+                tk: Tk::IntegerLiteral(3),
                 line_number: 0,
                 last_character: 0,
                 first_character: 0,
-            },
-            &ast_expr4,
-        );
+            }),
+            ..Default::default()
+        };
 
-        let ast_expr8 = AstNode::new_binary(
-            &Token {
-                tk: Tk::Operator(Operator::Plus),
+        let ast_expr5 = AstNodeWrapper {
+            node: AstNode::new_primary(&Token {
+                tk: Tk::IntegerLiteral(6),
                 line_number: 0,
                 last_character: 0,
                 first_character: 0,
-            },
-            &ast_expr7,
-            &ast_expr51,
-        );
+            }),
+            ..Default::default()
+        };
 
-        let ast_decl = AstNode::new_var_decl(
-            &ast_type,
-            &Token {
-                tk: Tk::Identifier(String::from("var")),
-                line_number: 0,
-                last_character: 0,
-                first_character: 0,
-            },
-            &ast_expr2,
-        );
+        let ast_type = AstNodeWrapper {
+            node: AstNode::new_type(
+                true,
+                &Token {
+                    tk: Tk::Keyword(Keyword::I8),
+                    line_number: 0,
+                    last_character: 0,
+                    first_character: 0,
+                },
+                3,
+            ),
+            ..Default::default()
+        };
 
-        let ast_block1 = AstNode::new_compound(&vec![ast_decl.clone(), ast_decl.clone()]);
-        let if_decl1 = AstNode::new_if(&ast_expr3, &ast_block1, &AstNode::new_null());
-        let ast_block2 = AstNode::new_compound(&vec![if_decl1.clone()]);
-        let if_decl2 = AstNode::new_if(&ast_expr8, &ast_block2, &ast_block1);
+        let ast_expr51 = AstNodeWrapper {
+            node: AstNode::new_cast(&ast_type, &ast_expr5),
+            ..Default::default()
+        };
+
+        let ast_expr3 = AstNodeWrapper {
+            node: AstNode::new_binary(
+                &Token {
+                    tk: Tk::Operator(Operator::Plus),
+                    line_number: 0,
+                    last_character: 0,
+                    first_character: 0,
+                },
+                &ast_expr1,
+                &ast_expr4,
+            ),
+            ..Default::default()
+        };
+
+        let ast_expr7 = AstNodeWrapper {
+            node: AstNode::new_prefix(
+                &Token {
+                    tk: Tk::Operator(Operator::Minus),
+                    line_number: 0,
+                    last_character: 0,
+                    first_character: 0,
+                },
+                &ast_expr4,
+            ),
+            ..Default::default()
+        };
+
+        let ast_expr8 = AstNodeWrapper {
+            node: AstNode::new_binary(
+                &Token {
+                    tk: Tk::Operator(Operator::Plus),
+                    line_number: 0,
+                    last_character: 0,
+                    first_character: 0,
+                },
+                &ast_expr7,
+                &ast_expr51,
+            ),
+            ..Default::default()
+        };
+
+        let ast_decl = AstNodeWrapper {
+            node: AstNode::new_var_decl(
+                &ast_type,
+                &Token {
+                    tk: Tk::Identifier(String::from("var")),
+                    line_number: 0,
+                    last_character: 0,
+                    first_character: 0,
+                },
+                &ast_expr2,
+            ),
+            ..Default::default()
+        };
+
+        let ast_block1 = AstNodeWrapper {
+            node: AstNode::new_compound(&vec![ast_decl.clone(), ast_decl.clone()]),
+            ..Default::default()
+        };
+        let if_decl1 = AstNodeWrapper {
+            node: AstNode::new_if(
+                &ast_expr3,
+                &ast_block1,
+                &AstNodeWrapper {
+                    ..Default::default()
+                },
+            ),
+            ..Default::default()
+        };
+        let ast_block2 = AstNodeWrapper {
+            node: AstNode::new_compound(&vec![if_decl1.clone()]),
+            ..Default::default()
+        };
+        let if_decl2 = AstNodeWrapper {
+            node: AstNode::new_if(&ast_expr8, &ast_block2, &ast_block1),
+            ..Default::default()
+        };
 
         println!("{}", if_decl2.to_string(0));
 
