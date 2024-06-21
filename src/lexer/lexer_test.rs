@@ -4,7 +4,7 @@ mod test {
     fn lx_test_comment() {
         use crate::lexer::lexer_impl::{Bracket, Keyword, Lexer, Tk, Token};
 
-        let input_code = "int
+        let input_code = "u16
             // This comment will be ignored
             main
             ( // This comment is ignored
@@ -19,13 +19,13 @@ mod test {
                 .unwrap(),
             &[
                 Token {
-                    tk: Tk::Keyword(Keyword::Int),
+                    tk: Tk::Keyword(Keyword::U16),
                     line_number: 1,
                     last_character: 3,
                     first_character: 1
                 },
                 Token {
-                    tk: Tk::Keyword(Keyword::Main),
+                    tk: Tk::Identifier(String::from("main")),
                     line_number: 3,
                     last_character: 16,
                     first_character: 13,
@@ -57,7 +57,7 @@ mod test {
                 Token {
                     tk: Tk::EOF,
                     line_number: 7,
-                    last_character: 1,
+                    last_character: 2,
                     first_character: 1,
                 },
             ]
@@ -114,13 +114,13 @@ mod test {
                     first_character: 8,
                 },
                 Token {
-                    tk: Tk::Operator(Operator::And),
+                    tk: Tk::Operator(Operator::AndOp),
                     line_number: 1,
                     last_character: 9,
                     first_character: 9,
                 },
                 Token {
-                    tk: Tk::Operator(Operator::Xor),
+                    tk: Tk::Operator(Operator::XorOp),
                     line_number: 1,
                     last_character: 10,
                     first_character: 10,
@@ -134,7 +134,7 @@ mod test {
                 Token {
                     tk: Tk::EOF,
                     line_number: 2,
-                    last_character: 1,
+                    last_character: 2,
                     first_character: 1,
                 },
             ]
@@ -209,7 +209,7 @@ mod test {
                 Token {
                     tk: Tk::EOF,
                     line_number: 6,
-                    last_character: 1,
+                    last_character: 2,
                     first_character: 1,
                 },
             ]
