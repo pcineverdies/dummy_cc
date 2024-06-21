@@ -223,7 +223,10 @@ impl Parser {
                                         source_ref,
                                         ..Default::default()
                                     };
-                                    if expr.type_ref != type_node.type_ref {
+                                    if !TypeWrapper::are_compatible(
+                                        &expr.type_ref,
+                                        &type_node.type_ref,
+                                    ) {
                                         return self.parser_error(NodeError(
                                             result,
                                             String::from(format!(
@@ -279,8 +282,36 @@ impl Parser {
                                             }
                                         }
                                     }
-                                    match self.compound_statement() {
+                                    match self.compound_statement(false, &type_node.type_ref) {
                                         Match(node) => {
+                                            if type_node.type_ref.type_native != TypeNative::Void {
+                                                if let AstNode::CompoundNode(list) = &node.node {
+                                                    if list.len() == 0 {
+                                                        return self.parser_error(NodeError(
+                                                            node.clone(),
+                                                            String::from(format!(
+                                                                "Missing return statement",
+                                                            )),
+                                                        ));
+                                                    }
+                                                    let last = list[&list.len() - 1].clone();
+                                                    let mut found_ret = false;
+                                                    if let JumpNode(ref tk, _) = last.node {
+                                                        if let Tk::Keyword(Return) = tk.tk {
+                                                            found_ret = true;
+                                                        }
+                                                    }
+                                                    if !found_ret {
+                                                        return self.parser_error(NodeError(
+                                                            node.clone(),
+                                                            String::from(format!(
+                                                                "Last statement must be return with type {}",
+                                                                type_node.type_ref.to_string()
+                                                            )),
+                                                        ));
+                                                    }
+                                                }
+                                            }
                                             body = node;
                                             source_ref = SourceReference::merge(
                                                 &type_node.source_ref,
@@ -465,9 +496,11 @@ impl Parser {
     ///
     /// Compound_statement ->  { {statement}* }
     ///
+    /// @in in_loop [bool]: whether the statement is currently in a loop or not
+    /// @in return_type [TypeWrapper]: expected return type
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
-    fn compound_statement(&mut self) -> ParserResult {
+    fn compound_statement(&mut self, in_loop: bool, return_type: &TypeWrapper) -> ParserResult {
         debug_println!("-> compound_statement");
 
         let mut result: Vec<AstNodeWrapper> = Vec::new();
@@ -478,7 +511,7 @@ impl Parser {
         self.advance();
         self.symbol_table.add_scope();
         while self.get_current() != Tk::Bracket(RCurly) {
-            match self.statement() {
+            match self.statement(in_loop, &return_type) {
                 Match(node) => {
                     if node.node != AstNode::NullNode {
                         result.push(node);
@@ -525,9 +558,11 @@ impl Parser {
     ///            |    Iteration_statement
     ///            |    Jump_statement
     ///
+    /// @in in_loop [bool]: whether the statement is currently in a loop or not
+    /// @in return_type [TypeWrapper]: expected return type
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
-    fn statement(&mut self) -> ParserResult {
+    fn statement(&mut self, in_loop: bool, return_type: &TypeWrapper) -> ParserResult {
         debug_println!("-> statement");
         if self.get_current().is_type() || self.get_current() == Tk::Keyword(Const) {
             match self.declaration() {
@@ -538,21 +573,33 @@ impl Parser {
         }
 
         match self.get_current() {
-            Tk::Bracket(LCurly) => match self.compound_statement() {
+            Tk::Bracket(LCurly) => match self.compound_statement(in_loop, &return_type) {
                 Match(node) => return Match(node),
                 _ => return Fail,
             },
-            Tk::Keyword(Keyword::If) => match self.selection_statement() {
+            Tk::Keyword(Keyword::If) => match self.selection_statement(&return_type) {
                 Match(node) => return Match(node),
                 _ => return Fail,
             },
-            Tk::Keyword(Break) | Tk::Keyword(Continue) | Tk::Keyword(Return) => {
-                match self.jump_statement() {
-                    Match(node) => return Match(node),
-                    _ => return Fail,
+            Tk::Keyword(Break) | Tk::Keyword(Continue) => match self.jump_statement(&return_type) {
+                Match(node) => {
+                    if !in_loop {
+                        return self.parser_error(NodeError(
+                            node.clone(),
+                            String::from(format!("Cannot use break or continue outside of loop",)),
+                        ));
+                    }
+                    return Match(node);
                 }
-            }
-            Tk::Keyword(While) | Tk::Keyword(For) => match self.iteration_statement() {
+                _ => return Fail,
+            },
+            Tk::Keyword(Return) => match self.jump_statement(&return_type) {
+                Match(node) => {
+                    return Match(node);
+                }
+                _ => return Fail,
+            },
+            Tk::Keyword(While) | Tk::Keyword(For) => match self.iteration_statement(&return_type) {
                 Match(node) => return Match(node),
                 _ => return Fail,
             },
@@ -572,9 +619,10 @@ impl Parser {
     ///                 |   break stop
     ///                 |   continue stop
     ///
+    /// @in return_type [TypeWrapper]: expected return type
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
-    fn jump_statement(&mut self) -> ParserResult {
+    fn jump_statement(&mut self, return_type: &TypeWrapper) -> ParserResult {
         debug_println!("-> jump_statement");
         let token = self.get_current_token();
         match self.get_current() {
@@ -613,6 +661,29 @@ impl Parser {
                             &SourceReference::from_token(&token),
                             &SourceReference::from_token(&semicolon),
                         );
+                        if return_type.type_native == TypeNative::Void
+                            && expr.node != AstNode::NullNode
+                        {
+                            return self.parser_error(NodeError(
+                                expr.clone(),
+                                String::from(format!(
+                                    "Function has type void but {} was found",
+                                    expr.type_ref.to_string()
+                                )),
+                            ));
+                        }
+                        if return_type.type_native != TypeNative::Void
+                            && expr.type_ref != *return_type
+                        {
+                            return self.parser_error(NodeError(
+                                expr.clone(),
+                                String::from(format!(
+                                    "Function has type {} but {} was found",
+                                    return_type.to_string(),
+                                    expr.type_ref.to_string()
+                                )),
+                            ));
+                        }
                         return Match(AstNodeWrapper {
                             node: AstNode::new_jump(&token, &expr),
                             source_ref,
@@ -632,9 +703,10 @@ impl Parser {
     /// Iteration_statement ->  while ( Expression ) Compound_statement
     ///                      |  for ( Optional_expression stop Optional_expression stop Optional_expression ) Compound_statement
     ///
+    /// @in return_type [TypeWrapper]: expected return type
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
-    fn iteration_statement(&mut self) -> ParserResult {
+    fn iteration_statement(&mut self, return_type: &TypeWrapper) -> ParserResult {
         debug_println!("-> iteration_statement");
         match self.get_current() {
             Tk::Keyword(For) => {
@@ -662,7 +734,7 @@ impl Parser {
                                             return self.parser_error(TokenError(")".to_string()));
                                         }
                                         self.advance();
-                                        match self.compound_statement() {
+                                        match self.compound_statement(true, &return_type) {
                                             Match(body) => {
                                                 let source_ref = SourceReference::merge(
                                                     &SourceReference::from_token(&token),
@@ -699,7 +771,7 @@ impl Parser {
                             Match(expr) => match self.get_current() {
                                 Tk::Bracket(RBracket) => {
                                     self.advance();
-                                    match self.compound_statement() {
+                                    match self.compound_statement(true, return_type) {
                                         Match(body) => {
                                             let source_ref = SourceReference::merge(
                                                 &SourceReference::from_token(&token),
@@ -734,9 +806,10 @@ impl Parser {
     ///
     /// Selection_statement ->  if ( Expression ) Compound_statement Else_statement
     ///
+    /// @in return_type [TypeWrapper]: expected return type
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
-    fn selection_statement(&mut self) -> ParserResult {
+    fn selection_statement(&mut self, return_type: &TypeWrapper) -> ParserResult {
         debug_println!("-> selection_statement");
         match self.get_current() {
             Tk::Keyword(If) => {
@@ -752,8 +825,8 @@ impl Parser {
                             self.parser_error(TokenError(")".to_string()));
                         }
                         self.advance();
-                        match self.compound_statement() {
-                            Match(body) => match self.else_statement() {
+                        match self.compound_statement(false, &return_type) {
+                            Match(body) => match self.else_statement(&return_type) {
                                 Match(else_body) => {
                                     let source_ref = SourceReference::merge(
                                         &SourceReference::from_token(&token),
@@ -784,9 +857,10 @@ impl Parser {
     /// Else_statement ->   ε
     ///                 |   else Compound_statement
     ///
+    /// @in return_type [TypeWrapper]: expected return type
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
-    fn else_statement(&mut self) -> ParserResult {
+    fn else_statement(&mut self, return_type: &TypeWrapper) -> ParserResult {
         debug_println!("-> else_statement");
         if self.get_current() != Tk::Keyword(Else) {
             return Match(AstNodeWrapper {
@@ -795,7 +869,7 @@ impl Parser {
         }
         let token = self.get_current_token();
         self.advance();
-        match self.compound_statement() {
+        match self.compound_statement(false, &return_type) {
             Match(mut node) => {
                 node.source_ref =
                     SourceReference::merge(&SourceReference::from_token(&token), &node.source_ref);
@@ -911,7 +985,10 @@ impl Parser {
                                     source_ref,
                                     ..Default::default()
                                 };
-                                if node.type_ref != node_unary.type_ref {
+                                if !TypeWrapper::are_compatible(
+                                    &node.type_ref,
+                                    &node_unary.type_ref,
+                                ) {
                                     return self.parser_error(NodeError(
                                         result,
                                         String::from(format!(
@@ -980,7 +1057,7 @@ impl Parser {
                                     )),
                                 ));
                             }
-                            if node.type_ref != first.type_ref {
+                            if !TypeWrapper::are_compatible(&node.type_ref, &first.type_ref) {
                                 return self.parser_error(NodeError(
                                     node.clone(),
                                     String::from(format!(
@@ -1058,7 +1135,7 @@ impl Parser {
                                     )),
                                 ));
                             }
-                            if node.type_ref != first.type_ref {
+                            if !TypeWrapper::are_compatible(&node.type_ref, &first.type_ref) {
                                 return self.parser_error(NodeError(
                                     node.clone(),
                                     String::from(format!(
@@ -1144,7 +1221,7 @@ impl Parser {
                                     )),
                                 ));
                             }
-                            if node.type_ref != first.type_ref {
+                            if !TypeWrapper::are_compatible(&node.type_ref, &first.type_ref) {
                                 return self.parser_error(NodeError(
                                     node.clone(),
                                     String::from(format!(
@@ -1228,7 +1305,7 @@ impl Parser {
                                     )),
                                 ));
                             }
-                            if node.type_ref != first.type_ref {
+                            if !TypeWrapper::are_compatible(&node.type_ref, &first.type_ref) {
                                 return self.parser_error(NodeError(
                                     node.clone(),
                                     String::from(format!(
@@ -1307,7 +1384,7 @@ impl Parser {
                     self.advance();
                     match self.multiplicative_expression() {
                         Match(node) => {
-                            if node.type_ref != first.type_ref {
+                            if !TypeWrapper::are_compatible(&node.type_ref, &first.type_ref) {
                                 return self.parser_error(NodeError(
                                     node.clone(),
                                     String::from(format!(
@@ -1399,7 +1476,7 @@ impl Parser {
                                     )),
                                 ));
                             }
-                            if node.type_ref != first.type_ref {
+                            if !TypeWrapper::are_compatible(&node.type_ref, &first.type_ref) {
                                 return self.parser_error(NodeError(
                                     node.clone(),
                                     String::from(format!(
@@ -2096,7 +2173,6 @@ impl Parser {
                     eprintln!("");
                 }
             }
-            _ => {}
         }
         return Fail;
     }

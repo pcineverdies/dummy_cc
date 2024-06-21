@@ -30,13 +30,13 @@ mod test {
             u32** experimental_function() {
               u8 array[10];
               while(array[9] = (u8)20){
-                for(;;){}
+                for(;;){
+                    break;
+                }
                 u32 daje = 80 * 20 - 32 << 21;
                 if(daje){;;;;;}
               }
-              return 0;
-              break;
-              continue;
+              return (u32**)0;
             }
 
             void main() {
@@ -67,13 +67,13 @@ void bubble_sort(u32* array,u32 n){
 u32** experimental_function(){
   u8 array[10];
   while((((array)[9]) = ((u8)20))){
-    for(; ; ){}
+    for(; ; ){
+      break;
+    }
     u32 daje = (((80 * 20) - 32) << 21);
     if(daje){}
   }
-  return 0;
-  break;
-  continue;
+  return ((u32**)0);
 }
 void main(){
   u32 array[N];
