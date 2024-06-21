@@ -1,4 +1,6 @@
-use crate::lexer::lexer_impl::Token;
+use core::panic;
+
+use crate::lexer::lexer_impl::{Keyword, Tk, Token};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum AstNode {
@@ -33,7 +35,7 @@ pub enum AstNode {
     PrimaryNode(Token),
     ProcedureNode(Box<AstNodeWrapper>, Vec<AstNodeWrapper>),
     SelectorNode(Box<AstNodeWrapper>, Box<AstNodeWrapper>),
-    TypeNode(bool, Token, u32),
+    TypeNode(TypeWrapper),
     VarDeclNode(Box<AstNodeWrapper>, Token, Box<AstNodeWrapper>),
     WhileNode(Box<AstNodeWrapper>, Box<AstNodeWrapper>),
 }
@@ -51,6 +53,13 @@ pub enum TypeNative {
     Null,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TypeWrapper {
+    pub type_native: TypeNative,
+    pub pointer: u32,
+    pub constant: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct SourceReference {
     pub init_line: u32,
@@ -63,7 +72,8 @@ pub struct SourceReference {
 pub struct AstNodeWrapper {
     pub node: AstNode,
     pub source_ref: SourceReference,
-    pub type_ref: (TypeNative, u32),
+    pub type_ref: TypeWrapper,
+    pub is_lvalue: bool,
 }
 
 use AstNode::*;
@@ -135,8 +145,8 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_type(an0: bool, an1: &Token, an2: u32) -> AstNode {
-        TypeNode(an0, an1.clone(), an2)
+    pub fn new_type(t: &TypeWrapper) -> AstNode {
+        TypeNode(t.clone())
     }
 
     /// AstNode::new_procedure
@@ -338,14 +348,8 @@ impl AstNodeWrapper {
                     expr.to_string(0).as_str()
                 );
             }
-            TypeNode(c, tt, counter) => {
-                if *c {
-                    result += "const ";
-                }
-                result += &format!("{}", tt.tk.to_string().as_str(),);
-                for _ in 0..*counter {
-                    result += "*";
-                }
+            TypeNode(t) => {
+                result += &format!("{}", t.to_string());
             }
             ProcedureNode(expr, args) => {
                 result += &format!("({})(", expr.to_string(0).as_str(),);
@@ -532,5 +536,66 @@ impl SourceReference {
         }
 
         result
+    }
+}
+
+impl TypeNative {
+    pub fn get_null() -> TypeNative {
+        TypeNative::Null
+    }
+
+    pub fn from_token(tk: &Token) -> TypeNative {
+        match &tk.tk {
+            Tk::Keyword(k) => match k {
+                Keyword::U8 => return TypeNative::U8,
+                Keyword::U16 => return TypeNative::U16,
+                Keyword::U32 => return TypeNative::U32,
+                Keyword::I8 => return TypeNative::I8,
+                Keyword::I16 => return TypeNative::I16,
+                Keyword::I32 => return TypeNative::I32,
+                Keyword::Void => return TypeNative::Void,
+                _ => panic!("Cannot create type from non-type keyword"),
+            },
+            _ => {
+                panic!("Cannot create type from token which is not Keyword")
+            }
+        }
+    }
+}
+
+impl TypeWrapper {
+    pub fn to_string(&self) -> String {
+        let mut result = String::from("");
+
+        if self.constant {
+            result += "const ";
+        }
+
+        match &self.type_native {
+            TypeNative::U32 => result += "u32",
+            TypeNative::U16 => result += "u16",
+            TypeNative::U8 => result += "u8",
+            TypeNative::I32 => result += "i32",
+            TypeNative::I16 => result += "i16",
+            TypeNative::I8 => result += "i8",
+            TypeNative::Void => result += "void",
+            TypeNative::Null => result += "null",
+        };
+
+        for _ in 0..self.pointer {
+            result += "*";
+        }
+
+        result
+    }
+}
+
+impl Default for TypeWrapper {
+    fn default() -> TypeWrapper {
+        TypeWrapper {
+            constant: false,
+            type_native: TypeNative::Null,
+            pointer: 0,
+        }
     }
 }

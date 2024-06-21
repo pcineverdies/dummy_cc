@@ -1,6 +1,6 @@
-use crate::ast::ast_impl::{AstNode, AstNodeWrapper, SourceReference};
+use crate::ast::ast_impl::{AstNode, AstNodeWrapper, SourceReference, TypeNative, TypeWrapper};
 use crate::lexer::lexer_impl::{Bracket, Keyword, Operator, Tk, Token};
-use crate::parser::resolution::Resolution;
+use crate::parser::symbol_table::{Declaration, SymbolTable};
 use std::string::String;
 use std::{fs::read_to_string, process::exit};
 
@@ -15,7 +15,7 @@ pub struct Parser {
     depth: u32,
     errors_counter: u32,
     file_name: String,
-    resolution: Resolution,
+    symbol_table: SymbolTable,
     skip_erorrs: bool,
 }
 
@@ -28,7 +28,8 @@ enum ParserResult {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum ParserErrorType {
-    ScopeError,
+    ScopeError(String, String, AstNodeWrapper),
+    RedefintionError(String),
     TokenError(String),
     NodeError(AstNodeWrapper),
 }
@@ -56,7 +57,7 @@ impl Parser {
             depth: 0,
             errors_counter: 0,
             file_name,
-            resolution: Resolution::new(),
+            symbol_table: SymbolTable::new(),
             skip_erorrs: false,
         }
     }
@@ -112,6 +113,7 @@ impl Parser {
                 if self.get_current() != Tk::EOF {
                     self.parser_error(TokenError("EOF".to_string()));
                 } else if self.errors_counter == 0 {
+                    println!("{:#?}", self.symbol_table);
                     return Some(node);
                 }
             }
@@ -161,7 +163,6 @@ impl Parser {
     ///
     /// Declaration ->  Pointer_type identifier stop
     ///              |  Pointer_type identifier =  Expression stop
-    ///              |  Pointer_type identifier ( Parameter_list ) stop
     ///              |  Pointer_type identifier ( Parameter_list ) Compound_statement
     ///              |  Pointer_type identifier [ Expression ] stop
     ///
@@ -171,7 +172,7 @@ impl Parser {
         debug_println!("-> declaration");
         match self.pointer_type() {
             Match(type_node) => match self.get_current() {
-                Tk::Identifier(_) => {
+                Tk::Identifier(id) => {
                     let id_token = self.get_current_token();
                     self.advance();
                     match self.get_current() {
@@ -182,6 +183,16 @@ impl Parser {
                                 &type_node.source_ref,
                                 &SourceReference::from_token(&token),
                             );
+                            if let AstNode::TypeNode(t) = &type_node.node {
+                                let res = self.symbol_table.add_definition(&Declaration {
+                                    name: id.clone(),
+                                    return_type: t.clone(),
+                                    ..Default::default()
+                                });
+                                if res.is_none() {
+                                    return self.parser_error(RedefintionError(id));
+                                }
+                            }
                             return Match(AstNodeWrapper {
                                 node: AstNode::new_var_decl(
                                     &type_node,
@@ -207,6 +218,16 @@ impl Parser {
                                         &type_node.source_ref,
                                         &SourceReference::from_token(&token),
                                     );
+                                    if let AstNode::TypeNode(t) = &type_node.node {
+                                        let res = self.symbol_table.add_definition(&Declaration {
+                                            name: id.clone(),
+                                            return_type: t.clone(),
+                                            ..Default::default()
+                                        });
+                                        if res.is_none() {
+                                            return self.parser_error(RedefintionError(id));
+                                        }
+                                    }
                                     return Match(AstNodeWrapper {
                                         node: AstNode::new_var_decl(&type_node, &id_token, &expr),
                                         source_ref,
@@ -225,29 +246,62 @@ impl Parser {
                                         return self.parser_error(TokenError(")".to_string()));
                                     }
                                     self.advance();
-                                    if self.get_current() == Tk::Semicolon {
-                                        source_ref = SourceReference::merge(
-                                            &type_node.source_ref,
-                                            &SourceReference::from_token(&self.get_current_token()),
-                                        );
-                                        self.advance();
-                                        body = AstNodeWrapper {
-                                            ..Default::default()
-                                        };
-                                    } else {
-                                        match self.compound_statement() {
-                                            Match(node) => {
-                                                body = node;
-                                                source_ref = SourceReference::merge(
-                                                    &type_node.source_ref,
-                                                    &body.source_ref,
-                                                );
+                                    if let AstNode::FuncDeclNode(_, _, ref params, _) = list.node {
+                                        for elem in params {
+                                            if let AstNode::ParameterNode(name, t_n) = &elem.node {
+                                                if let AstNode::TypeNode(t) = &t_n.node {
+                                                    if let Tk::Identifier(n) = &name.tk {
+                                                        let res = self
+                                                            .symbol_table
+                                                            .add_to_next_scope(&Declaration {
+                                                                name: n.to_string(),
+                                                                return_type: t.clone(),
+                                                                ..Default::default()
+                                                            });
+                                                        if res.is_none() {
+                                                            return self.parser_error(
+                                                                RedefintionError(n.to_string()),
+                                                            );
+                                                        }
+                                                    }
+                                                }
                                             }
-                                            _ => return Fail,
                                         }
+                                    }
+                                    match self.compound_statement() {
+                                        Match(node) => {
+                                            body = node;
+                                            source_ref = SourceReference::merge(
+                                                &type_node.source_ref,
+                                                &body.source_ref,
+                                            );
+                                        }
+                                        _ => return Fail,
                                     }
                                     match list.node {
                                         AstNode::FuncDeclNode(_, _, params, _) => {
+                                            let mut parameters_st = Vec::new();
+                                            for elem in &params {
+                                                if let AstNode::ParameterNode(_, t_n) = &elem.node {
+                                                    if let AstNode::TypeNode(t) = &t_n.node {
+                                                        parameters_st.push(t.clone());
+                                                    }
+                                                }
+                                            }
+                                            if let AstNode::TypeNode(t) = &type_node.node {
+                                                let res = self.symbol_table.add_definition(
+                                                    &Declaration {
+                                                        name: id.clone(),
+                                                        return_type: t.clone(),
+                                                        is_function: true,
+                                                        arguments: parameters_st,
+                                                        ..Default::default()
+                                                    },
+                                                );
+                                                if res.is_none() {
+                                                    return self.parser_error(RedefintionError(id));
+                                                }
+                                            }
                                             return Match(AstNodeWrapper {
                                                 node: AstNode::new_func_decl(
                                                     &type_node, &id_token, &params, &body,
@@ -279,6 +333,15 @@ impl Parser {
                                         &SourceReference::from_token(&token),
                                     );
                                     self.advance();
+                                    if let AstNode::TypeNode(t) = &type_node.node {
+                                        let mut tt = t.clone();
+                                        tt.pointer += 1;
+                                        self.symbol_table.add_definition(&Declaration {
+                                            name: id,
+                                            return_type: tt.clone(),
+                                            ..Default::default()
+                                        });
+                                    }
                                     return Match(AstNodeWrapper {
                                         node: AstNode::new_array_decl(&type_node, &id_token, &node),
                                         source_ref,
@@ -402,6 +465,7 @@ impl Parser {
         }
         let token_l = self.get_current_token();
         self.advance();
+        self.symbol_table.add_scope();
         while self.get_current() != Tk::Bracket(RCurly) {
             match self.statement() {
                 Match(node) => {
@@ -422,6 +486,7 @@ impl Parser {
                 }
             }
         }
+        self.symbol_table.remove_scope();
         if self.get_current() != Tk::Bracket(RCurly) {
             return self.parser_error(TokenError("}".to_string()));
         }
@@ -1318,8 +1383,10 @@ impl Parser {
                     _ => return self.parser_error(TokenError("".to_string())),
                 }
                 match node.node {
-                    AstNode::TypeNode(_, tt, _) => {
-                        let new_node = AstNode::new_type(is_const, &tt, pointer_counter);
+                    AstNode::TypeNode(mut t) => {
+                        t.constant = is_const;
+                        t.pointer = pointer_counter;
+                        let new_node = AstNode::new_type(&t);
                         return Match(AstNodeWrapper {
                             node: new_node,
                             source_ref,
@@ -1347,8 +1414,13 @@ impl Parser {
             let token = self.get_current_token();
             let source_ref = SourceReference::from_token(&token);
             self.advance();
+            let type_native = TypeNative::from_token(&token);
             return Match(AstNodeWrapper {
-                node: AstNode::new_type(false, &token, 0),
+                node: AstNode::new_type(&TypeWrapper {
+                    type_native,
+                    constant: false,
+                    pointer: 0,
+                }),
                 source_ref,
                 ..Default::default()
             });
@@ -1568,13 +1640,23 @@ impl Parser {
                 let token = self.get_current_token();
                 let source_ref = SourceReference::from_token(&token);
                 let node = AstNode::new_primary(&token);
-                let result = Match(AstNodeWrapper {
+                let result = AstNodeWrapper {
                     node,
                     source_ref,
                     ..Default::default()
-                });
+                };
+                if let Tk::Identifier(ref name) = token.tk {
+                    let result_search = self.symbol_table.search_definition(&name);
+                    if let Err(message) = result_search {
+                        return self.parser_error(ParserErrorType::ScopeError(
+                            name.to_string(),
+                            message,
+                            result,
+                        ));
+                    }
+                }
                 self.advance();
-                return result;
+                return Match(result);
             }
             Tk::Bracket(LBracket) => {
                 let token_l = self.get_current_token();
@@ -1669,6 +1751,50 @@ impl Parser {
         );
 
         match error {
+            ScopeError(found, expected, node) => {
+                eprintln!(
+                    "\x1b[91merror parser: \x1b[0midentifier `\x1b[34m{}\x1b[0m` not found, did you mean `\x1b[34m{}\x1b[0m`?",
+                    found,
+                    expected
+                );
+                println!("");
+                for line_number in node.source_ref.init_line..=node.source_ref.last_line {
+                    let line = &file_lines[line_number as usize - 1];
+                    eprint!("{}\t| {}\n\t| ", line_number, line);
+                    for i in 0..line.len() {
+                        if node.source_ref.init_line == node.source_ref.last_line {
+                            if i >= node.source_ref.init_char as usize - 1
+                                && i <= node.source_ref.last_char as usize - 1
+                            {
+                                eprint!("\x1b[91m^\x1b[0m");
+                            } else {
+                                eprint!(" ");
+                            }
+                        } else if line_number == node.source_ref.init_line {
+                            if i < node.source_ref.init_char as usize - 1 {
+                                eprint!(" ");
+                            } else {
+                                eprint!("\x1b[91m^\x1b[0m");
+                            }
+                        } else if line_number == node.source_ref.last_line {
+                            if i <= node.source_ref.last_char as usize - 1 {
+                                eprint!("\x1b[91m^\x1b[0m");
+                            } else {
+                                eprint!(" ");
+                            }
+                        } else {
+                            eprint!("\x1b[91m^\x1b[0m");
+                        }
+                    }
+                    eprintln!("");
+                }
+            }
+            RedefintionError(message) => {
+                eprintln!(
+                    "\x1b[91merror parser: \x1b[0mredefinition of identifier `\x1b[34m{}\x1b[0m`",
+                    message
+                );
+            }
             TokenError(expected) => {
                 if expected.len() != 0 {
                     eprintln!(

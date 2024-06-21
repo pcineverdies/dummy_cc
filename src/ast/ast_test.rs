@@ -2,8 +2,8 @@ mod test {
 
     #[test]
     fn ast_test() {
-        use crate::ast::ast_impl::{AstNode, AstNodeWrapper};
-        use crate::lexer::lexer_impl::{Keyword, Operator, Tk, Token};
+        use crate::ast::ast_impl::{AstNode, AstNodeWrapper, TypeNative, TypeWrapper};
+        use crate::lexer::lexer_impl::{Operator, Tk, Token};
 
         let ast_expr1 = AstNodeWrapper {
             node: AstNode::new_primary(&Token {
@@ -46,16 +46,11 @@ mod test {
         };
 
         let ast_type = AstNodeWrapper {
-            node: AstNode::new_type(
-                true,
-                &Token {
-                    tk: Tk::Keyword(Keyword::I8),
-                    line_number: 0,
-                    last_character: 0,
-                    first_character: 0,
-                },
-                3,
-            ),
+            node: AstNode::new_type(&TypeWrapper {
+                constant: true,
+                type_native: TypeNative::I8,
+                pointer: 3,
+            }),
             ..Default::default()
         };
 
