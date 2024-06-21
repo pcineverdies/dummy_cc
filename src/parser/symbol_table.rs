@@ -1,6 +1,9 @@
 use edit_distance;
 
-use crate::ast::ast_impl::TypeWrapper;
+use crate::{
+    ast::ast_impl::{AstNode, AstNodeWrapper, TypeNative, TypeWrapper},
+    lexer::lexer_impl::Tk,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Declaration {
@@ -80,6 +83,58 @@ impl SymbolTable {
             }
         }
         return Err(closer_string.to_string().clone());
+    }
+
+    pub fn check_procedure(
+        &self,
+        primary: &AstNodeWrapper,
+        args: &Vec<AstNodeWrapper>,
+    ) -> Result<(), (AstNodeWrapper, String, String)> {
+        // Primary must be an indentifier
+        let mut identifier = "";
+        if let AstNode::PrimaryNode(n) = &primary.node {
+            if let Tk::Identifier(id) = &n.tk {
+                identifier = id;
+            }
+        }
+        if identifier == "" {
+            return Err((
+                primary.clone(),
+                String::from("fynction identifier"),
+                String::from("expression"),
+            ));
+        }
+
+        // As an identifier, it must be a function
+        let decl = self.search_definition(&identifier.to_string()).unwrap();
+        if !decl.is_function {
+            return Err((
+                primary.clone(),
+                String::from("function identifier"),
+                String::from("variable identifier"),
+            ));
+        }
+
+        // If function has no arguments, args must be empty
+        if decl.arguments.len() != args.len() {
+            return Err((
+                primary.clone(),
+                String::from(format!("{} arguments", decl.arguments.len())),
+                String::from(format!("{}", args.len())),
+            ));
+        }
+
+        for i in 0..decl.arguments.len() {
+            if !TypeWrapper::are_compatible(&decl.arguments[i], &args[i].type_ref) {
+                return Err((
+                    args[i].clone(),
+                    String::from(format!("type {}", decl.arguments[i].to_string())),
+                    String::from(format!("type {}", args[i].type_ref.to_string())),
+                ));
+            }
+        }
+        // Each argument must match
+        return Ok(());
     }
 }
 

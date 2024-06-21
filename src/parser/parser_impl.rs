@@ -31,7 +31,7 @@ enum ParserErrorType {
     ScopeError(String, String, AstNodeWrapper),
     RedefintionError(String),
     TokenError(String),
-    NodeError(AstNodeWrapper),
+    NodeError(AstNodeWrapper, String),
 }
 
 use AstNode::*;
@@ -218,6 +218,21 @@ impl Parser {
                                         &type_node.source_ref,
                                         &SourceReference::from_token(&token),
                                     );
+                                    let result = AstNodeWrapper {
+                                        node: AstNode::new_var_decl(&type_node, &id_token, &expr),
+                                        source_ref,
+                                        ..Default::default()
+                                    };
+                                    if expr.type_ref != type_node.type_ref {
+                                        return self.parser_error(NodeError(
+                                            result,
+                                            String::from(format!(
+                                                "mismatched type at assignment: expected {}, found {}",
+                                                type_node.type_ref.to_string(),
+                                                expr.type_ref.to_string()
+                                            )),
+                                        ));
+                                    }
                                     if let AstNode::TypeNode(t) = &type_node.node {
                                         let res = self.symbol_table.add_definition(&Declaration {
                                             name: id.clone(),
@@ -228,11 +243,7 @@ impl Parser {
                                             return self.parser_error(RedefintionError(id));
                                         }
                                     }
-                                    return Match(AstNodeWrapper {
-                                        node: AstNode::new_var_decl(&type_node, &id_token, &expr),
-                                        source_ref,
-                                        ..Default::default()
-                                    });
+                                    return Match(result);
                                 }
                                 _ => Fail,
                             }
@@ -873,6 +884,20 @@ impl Parser {
                 self.skip_erorrs = false;
                 match self.get_current() {
                     Operator(Assign) => {
+                        if !node_unary.is_lvalue {
+                            return self.parser_error(NodeError(
+                                node_unary.clone(),
+                                String::from(format!("cannot assign as it is not an lvalue",)),
+                            ));
+                        }
+                        if node_unary.type_ref.constant {
+                            return self.parser_error(NodeError(
+                                node_unary.clone(),
+                                String::from(format!(
+                                    "cannot assign as variable is declared as const",
+                                )),
+                            ));
+                        }
                         let token = self.get_current_token();
                         self.advance();
                         match self.expression() {
@@ -881,11 +906,22 @@ impl Parser {
                                     &node_unary.source_ref,
                                     &node.source_ref,
                                 );
-                                return Match(AstNodeWrapper {
+                                let result = AstNodeWrapper {
                                     node: AstNode::new_binary(&token, &node_unary, &node),
                                     source_ref,
                                     ..Default::default()
-                                });
+                                };
+                                if node.type_ref != node_unary.type_ref {
+                                    return self.parser_error(NodeError(
+                                        result,
+                                        String::from(format!(
+                                            "mismatched type at assignment: expected {}, found {}",
+                                            node_unary.type_ref.to_string(),
+                                            node.type_ref.to_string()
+                                        )),
+                                    ));
+                                }
+                                return Match(result);
                             }
                             _ => return Fail,
                         }
@@ -923,8 +959,8 @@ impl Parser {
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
 
         match self.equality_expression() {
-            Match(node) => {
-                node_stack.push(node);
+            Match(first) => {
+                node_stack.push(first.clone());
                 while self.get_current() == Tk::Operator(AndOp)
                     || self.get_current() == Tk::Operator(OrOp)
                     || self.get_current() == Tk::Operator(XorOp)
@@ -934,7 +970,28 @@ impl Parser {
                     op_stack.push(self.get_current_token());
                     self.advance();
                     match self.equality_expression() {
-                        Match(node) => node_stack.push(node),
+                        Match(node) => {
+                            if node.type_ref.pointer != 0 {
+                                return self.parser_error(NodeError(
+                                    node.clone(),
+                                    String::from(format!(
+                                        "type {} cannot be used in current expression",
+                                        node.type_ref.to_string(),
+                                    )),
+                                ));
+                            }
+                            if node.type_ref != first.type_ref {
+                                return self.parser_error(NodeError(
+                                    node.clone(),
+                                    String::from(format!(
+                                        "type {} cannot be used in current expression; expected {}",
+                                        node.type_ref.to_string(),
+                                        first.type_ref.to_string()
+                                    )),
+                                ));
+                            }
+                            node_stack.push(node)
+                        }
                         _ => return Fail,
                     }
                 }
@@ -947,6 +1004,7 @@ impl Parser {
                     result = AstNodeWrapper {
                         node: AstNode::new_binary(&op, &result, &new_operand),
                         source_ref: source_ref.clone(),
+                        type_ref: first.type_ref.clone(),
                         ..Default::default()
                     };
                 }
@@ -981,15 +1039,37 @@ impl Parser {
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
 
         match self.relational_expression() {
-            Match(node) => {
-                node_stack.push(node);
+            Match(first) => {
+                node_stack.push(first.clone());
                 while self.get_current() == Tk::Operator(EqualCompare)
                     || self.get_current() == Tk::Operator(DiffCompare)
                 {
                     op_stack.push(self.get_current_token());
                     self.advance();
                     match self.relational_expression() {
-                        Match(node) => node_stack.push(node),
+                        Match(node) => {
+                            if node.type_ref != first.type_ref {
+                                return self.parser_error(NodeError(
+                                    node.clone(),
+                                    String::from(format!(
+                                        "type {} cannot be used in current expression; expected {}",
+                                        node.type_ref.to_string(),
+                                        first.type_ref.to_string()
+                                    )),
+                                ));
+                            }
+                            if node.type_ref != first.type_ref {
+                                return self.parser_error(NodeError(
+                                    node.clone(),
+                                    String::from(format!(
+                                        "type {} cannot be used in current expression; expected {}",
+                                        node.type_ref.to_string(),
+                                        first.type_ref.to_string()
+                                    )),
+                                ));
+                            }
+                            node_stack.push(node)
+                        }
                         _ => return Fail,
                     }
                 }
@@ -1002,6 +1082,7 @@ impl Parser {
                     result = AstNodeWrapper {
                         node: AstNode::new_binary(&op, &result, &new_operand),
                         source_ref: source_ref.clone(),
+                        type_ref: first.type_ref.clone(),
                         ..Default::default()
                     };
                 }
@@ -1043,8 +1124,8 @@ impl Parser {
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
 
         match self.shift_expression() {
-            Match(node) => {
-                node_stack.push(node);
+            Match(first) => {
+                node_stack.push(first.clone());
                 while self.get_current() == Tk::Operator(LECompare)
                     || self.get_current() == Tk::Operator(GECompare)
                     || self.get_current() == Tk::Operator(LTCompare)
@@ -1053,7 +1134,28 @@ impl Parser {
                     op_stack.push(self.get_current_token());
                     self.advance();
                     match self.shift_expression() {
-                        Match(node) => node_stack.push(node),
+                        Match(node) => {
+                            if node.type_ref.pointer != 0 {
+                                return self.parser_error(NodeError(
+                                    node.clone(),
+                                    String::from(format!(
+                                        "type {} cannot be used in current expression",
+                                        node.type_ref.to_string()
+                                    )),
+                                ));
+                            }
+                            if node.type_ref != first.type_ref {
+                                return self.parser_error(NodeError(
+                                    node.clone(),
+                                    String::from(format!(
+                                        "type {} cannot be used in current expression; expected {}",
+                                        node.type_ref.to_string(),
+                                        first.type_ref.to_string()
+                                    )),
+                                ));
+                            }
+                            node_stack.push(node)
+                        }
                         _ => return Fail,
                     }
                 }
@@ -1066,6 +1168,7 @@ impl Parser {
                     result = AstNodeWrapper {
                         node: AstNode::new_binary(&op, &result, &new_operand),
                         source_ref: source_ref.clone(),
+                        type_ref: first.type_ref.clone(),
                         ..Default::default()
                     };
                 }
@@ -1107,15 +1210,36 @@ impl Parser {
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
 
         match self.additive_expression() {
-            Match(node) => {
-                node_stack.push(node);
+            Match(first) => {
+                node_stack.push(first.clone());
                 while self.get_current() == Tk::Operator(LShift)
                     || self.get_current() == Tk::Operator(RShift)
                 {
                     op_stack.push(self.get_current_token());
                     self.advance();
                     match self.additive_expression() {
-                        Match(node) => node_stack.push(node),
+                        Match(node) => {
+                            if node.type_ref.pointer != 0 {
+                                return self.parser_error(NodeError(
+                                    node.clone(),
+                                    String::from(format!(
+                                        "type {} cannot be used in current expression",
+                                        node.type_ref.to_string()
+                                    )),
+                                ));
+                            }
+                            if node.type_ref != first.type_ref {
+                                return self.parser_error(NodeError(
+                                    node.clone(),
+                                    String::from(format!(
+                                        "type {} cannot be used in current expression; expected {}",
+                                        node.type_ref.to_string(),
+                                        first.type_ref.to_string()
+                                    )),
+                                ));
+                            }
+                            node_stack.push(node)
+                        }
                         _ => return Fail,
                     }
                 }
@@ -1128,6 +1252,7 @@ impl Parser {
                     result = AstNodeWrapper {
                         node: AstNode::new_binary(&op, &result, &new_operand),
                         source_ref: source_ref.clone(),
+                        type_ref: first.type_ref.clone(),
                         ..Default::default()
                     };
                 }
@@ -1173,15 +1298,27 @@ impl Parser {
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
 
         match self.multiplicative_expression() {
-            Match(node) => {
-                node_stack.push(node);
+            Match(first) => {
+                node_stack.push(first.clone());
                 while self.get_current() == Tk::Operator(Plus)
                     || self.get_current() == Tk::Operator(Minus)
                 {
                     op_stack.push(self.get_current_token());
                     self.advance();
                     match self.multiplicative_expression() {
-                        Match(node) => node_stack.push(node),
+                        Match(node) => {
+                            if node.type_ref != first.type_ref {
+                                return self.parser_error(NodeError(
+                                    node.clone(),
+                                    String::from(format!(
+                                        "type {} cannot be used in current expression; expected {}",
+                                        node.type_ref.to_string(),
+                                        first.type_ref.to_string()
+                                    )),
+                                ));
+                            }
+                            node_stack.push(node)
+                        }
                         _ => return Fail,
                     }
                 }
@@ -1194,6 +1331,7 @@ impl Parser {
                     result = AstNodeWrapper {
                         node: AstNode::new_binary(&op, &result, &new_operand),
                         source_ref: source_ref.clone(),
+                        type_ref: first.type_ref.clone(),
                         ..Default::default()
                     };
                 }
@@ -1242,8 +1380,8 @@ impl Parser {
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
 
         match self.cast_expression() {
-            Match(node) => {
-                node_stack.push(node);
+            Match(first) => {
+                node_stack.push(first.clone());
                 while self.get_current() == Tk::Operator(Asterisk)
                     || self.get_current() == Tk::Operator(Slash)
                     || self.get_current() == Tk::Operator(Module)
@@ -1251,7 +1389,28 @@ impl Parser {
                     op_stack.push(self.get_current_token());
                     self.advance();
                     match self.cast_expression() {
-                        Match(node) => node_stack.push(node),
+                        Match(node) => {
+                            if node.type_ref.pointer != 0 {
+                                return self.parser_error(NodeError(
+                                    node.clone(),
+                                    String::from(format!(
+                                        "type {} cannot be used in current expression",
+                                        node.type_ref.to_string()
+                                    )),
+                                ));
+                            }
+                            if node.type_ref != first.type_ref {
+                                return self.parser_error(NodeError(
+                                    node.clone(),
+                                    String::from(format!(
+                                        "type {} cannot be used in current expression; expected {}",
+                                        node.type_ref.to_string(),
+                                        first.type_ref.to_string()
+                                    )),
+                                ));
+                            }
+                            node_stack.push(node);
+                        }
                         _ => return Fail,
                     }
                 }
@@ -1264,6 +1423,7 @@ impl Parser {
                     result = AstNodeWrapper {
                         node: AstNode::new_binary(&op, &result, &new_operand),
                         source_ref: source_ref.clone(),
+                        type_ref: first.type_ref.clone(),
                         ..Default::default()
                     };
                 }
@@ -1325,6 +1485,7 @@ impl Parser {
                                         return Match(AstNodeWrapper {
                                             node: AstNode::new_cast(&type_node, &node),
                                             source_ref,
+                                            type_ref: type_node.type_ref,
                                             ..Default::default()
                                         });
                                     }
@@ -1390,6 +1551,7 @@ impl Parser {
                         return Match(AstNodeWrapper {
                             node: new_node,
                             source_ref,
+                            type_ref: t,
                             ..Default::default()
                         });
                     }
@@ -1458,11 +1620,42 @@ impl Parser {
                             &SourceReference::from_token(&token),
                             &node.source_ref,
                         );
-                        return Match(AstNodeWrapper {
+                        let mut result = AstNodeWrapper {
                             node: AstNode::new_prefix(&token, &node),
                             source_ref,
                             ..Default::default()
-                        });
+                        };
+                        let mut type_ref = node.type_ref.clone();
+                        if let Tk::Operator(Asterisk) = token.tk {
+                            if type_ref.pointer == 0 {
+                                return self.parser_error(NodeError(
+                                    result,
+                                    String::from("Cannot dereference non-pointer type"),
+                                ));
+                            }
+                            type_ref.pointer -= 1;
+                            result.is_lvalue = true;
+                        } else if let Tk::Operator(AndOp) = token.tk {
+                            if !node.is_lvalue {
+                                return self.parser_error(NodeError(
+                                    result,
+                                    String::from("Cannot extract address from rvalue"),
+                                ));
+                            }
+                            type_ref.pointer += 1;
+                            type_ref.type_native = TypeNative::U32;
+                            result.is_lvalue = false;
+                        } else {
+                            if type_ref.pointer == 1 {
+                                return self.parser_error(NodeError(
+                                    result,
+                                    String::from("Cannot apply unary operator on pointer type"),
+                                ));
+                            }
+                            result.is_lvalue = false;
+                        };
+                        result.type_ref = type_ref;
+                        return Match(result);
                     }
                     _ => return Fail,
                 }
@@ -1495,13 +1688,37 @@ impl Parser {
                                 SourceReference::merge(&node.source_ref, &node_operator.source_ref);
                             match node_operator.node {
                                 SelectorNode(_, op) => {
+                                    let mut type_ref = node.type_ref.clone();
                                     node = AstNodeWrapper {
                                         node: AstNode::new_selector(&node, &op),
                                         source_ref,
+                                        is_lvalue: true,
                                         ..Default::default()
                                     };
+                                    if type_ref.pointer == 0 {
+                                        return self.parser_error(NodeError(
+                                            node,
+                                            String::from("Cannot dereference non-pointer type"),
+                                        ));
+                                    }
+                                    type_ref.pointer -= 1;
+                                    node.type_ref = type_ref;
                                 }
                                 ProcedureNode(_, op) => {
+                                    let check_result =
+                                        self.symbol_table.check_procedure(&node, &op);
+                                    match check_result {
+                                        Err((n, exp, got)) => {
+                                            return self.parser_error(NodeError(
+                                                n,
+                                                String::from(format!(
+                                                    "expected {}, found {}",
+                                                    exp, got
+                                                )),
+                                            ));
+                                        }
+                                        _ => {}
+                                    }
                                     node = AstNodeWrapper {
                                         node: AstNode::new_procedure(&node, &op),
                                         source_ref,
@@ -1554,11 +1771,12 @@ impl Parser {
                                 },
                                 &node,
                             );
-                            return Match(AstNodeWrapper {
+                            let result = AstNodeWrapper {
                                 node: new_node,
                                 source_ref,
                                 ..Default::default()
-                            });
+                            };
+                            return Match(result);
                         }
                         _ => return self.parser_error(TokenError("]".to_string())),
                     },
@@ -1640,11 +1858,23 @@ impl Parser {
                 let token = self.get_current_token();
                 let source_ref = SourceReference::from_token(&token);
                 let node = AstNode::new_primary(&token);
-                let result = AstNodeWrapper {
+                let mut result = AstNodeWrapper {
                     node,
                     source_ref,
                     ..Default::default()
                 };
+                if let Tk::IntegerLiteral(_) = token.tk {
+                    result.type_ref = TypeWrapper {
+                        type_native: TypeNative::U32,
+                        ..Default::default()
+                    };
+                }
+                if let Tk::Char(_) = token.tk {
+                    result.type_ref = TypeWrapper {
+                        type_native: TypeNative::U8,
+                        ..Default::default()
+                    };
+                }
                 if let Tk::Identifier(ref name) = token.tk {
                     let result_search = self.symbol_table.search_definition(&name);
                     if let Err(message) = result_search {
@@ -1654,6 +1884,9 @@ impl Parser {
                             result,
                         ));
                     }
+                    let declaration = result_search.unwrap();
+                    result.is_lvalue = true;
+                    result.type_ref = declaration.return_type;
                 }
                 self.advance();
                 return Match(result);
@@ -1829,7 +2062,8 @@ impl Parser {
                 }
                 eprintln!("");
             }
-            NodeError(node) => {
+            NodeError(node, string) => {
+                eprintln!("\x1b[91merror parser: \x1b[0m{}", string);
                 println!("");
                 for line_number in node.source_ref.init_line..=node.source_ref.last_line {
                     let line = &file_lines[line_number as usize - 1];

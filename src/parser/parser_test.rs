@@ -7,7 +7,7 @@ mod test {
 
         let input = String::from(
             "
-            const u32 N = 30;
+            const u32 N = (const u32)30;
 
             void swap(u32* a, u32* b) {
               u32 temp = *a;
@@ -15,11 +15,11 @@ mod test {
               *b = temp;
             }
 
-            void bubble_sort(u32* array, u32 N) {
+            void bubble_sort(u32* array, u32 n) {
               u32 i;
               u32 j;
-              for(i = 0; i < N; i = i + 1) {
-                for(j = i; j < N; j = j + 1) {
+              for(i = 0; i < n; i = i + 1) {
+                for(j = i; j < n; j = j + 1) {
                   if (array[j] < array[i]) {
                     swap(&array[i], &array[j]);
                   }
@@ -28,8 +28,8 @@ mod test {
             }
 
             u32** experimental_function() {
-              const u8 array[10];
-              while(array[10] = 20){
+              u8 array[10];
+              while(array[9] = (u8)20){
                 for(;;){}
                 u32 daje = 80 * 20 - 32 << 21;
                 if(daje){;;;;;}
@@ -43,21 +43,21 @@ mod test {
               u32 array[N];
               bubble_sort(array, N);
             }
-        ",
+",
         );
 
         let expected = String::from(
-            "const u32 N = 30;
+            "const u32 N = ((const u32)30);
 void swap(u32* a,u32* b){
   u32 temp = (*a);
   ((*a) = (*b));
   ((*b) = temp);
 }
-void bubble_sort(u32* array,u32 N){
+void bubble_sort(u32* array,u32 n){
   u32 i;
   u32 j;
-  for((i = 0); (i < N); (i = (i + 1))){
-    for((j = i); (j < N); (j = (j + 1))){
+  for((i = 0); (i < n); (i = (i + 1))){
+    for((j = i); (j < n); (j = (j + 1))){
       if((((array)[j]) < ((array)[i]))){
         (swap)((&((array)[i])),(&((array)[j])));
       }
@@ -65,8 +65,8 @@ void bubble_sort(u32* array,u32 N){
   }
 }
 u32** experimental_function(){
-  const u8 array[10];
-  while((((array)[10]) = 20)){
+  u8 array[10];
+  while((((array)[9]) = ((u8)20))){
     for(; ; ){}
     u32 daje = (((80 * 20) - 32) << 21);
     if(daje){}

@@ -561,6 +561,18 @@ impl TypeNative {
             }
         }
     }
+
+    pub fn is_numeric(&self) -> bool {
+        match self {
+            TypeNative::U32 => true,
+            TypeNative::U16 => true,
+            TypeNative::U8 => true,
+            TypeNative::I32 => true,
+            TypeNative::I16 => true,
+            TypeNative::I8 => true,
+            _ => false,
+        }
+    }
 }
 
 impl TypeWrapper {
@@ -587,6 +599,13 @@ impl TypeWrapper {
         }
 
         result
+    }
+
+    pub fn are_compatible(a: &TypeWrapper, b: &TypeWrapper) -> bool {
+        if a.pointer != b.pointer || a.type_native != b.type_native {
+            return false;
+        }
+        return true;
     }
 }
 
