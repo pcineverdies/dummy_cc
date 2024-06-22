@@ -4,21 +4,30 @@ use crate::parser::symbol_table::{Declaration, SymbolTable};
 use std::string::String;
 use std::{fs::read_to_string, process::exit};
 
+// Macro to print only when code is in debug mode
 macro_rules! debug_println {
     ($($arg:tt)*) => (if ::std::cfg!(debug_assertions) { ::std::println!($($arg)*); })
 }
 
+// Parser
+//
+// Object to store the information about the parser, currently related to one file only
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Parser {
-    token_list: Vec<Token>,
-    current_position: usize,
-    depth: u32,
-    errors_counter: u32,
-    file_name: String,
-    symbol_table: SymbolTable,
-    skip_erorrs: bool,
+    token_list: Vec<Token>,    // List of tokens from the lexer
+    current_position: usize,   // Current position in the above list
+    errors_counter: u32,       // How many errors have been found while parsing (fail if >0)
+    file_name: String,         // Name of file under analysis (to print error messages)
+    symbol_table: SymbolTable, // Global symbol table
+    skip_erorrs: bool,         // In certain situations, it is worth to skip the erorr messages
+                               // (when performing backtracking)
 }
 
+// ParserResult
+//
+// Each parsing function can result in a Match (in this case, the function returns the AstNode as
+// it was found), Fail or Unmatch (a certain function was called to parse the tokens, but it was
+// not the correct one)
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum ParserResult {
     Match(AstNodeWrapper),
@@ -26,19 +35,23 @@ enum ParserResult {
     Fail,
 }
 
+// ParserError
+//
+// Different kinds of errors can be generated during parsing. Each error contains enough
+// information to process the error message
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum ParserErrorType {
-    ScopeError(String, String, AstNodeWrapper),
-    RedefintionError(String),
-    TokenError(String),
-    NodeError(AstNodeWrapper, String),
+enum ParserError {
+    ScopeError(String, String, AstNodeWrapper), // Identifier not found in scope
+    RedefintionError(String),                   // Identifier already defined
+    TokenError(String),                         // Token is wrong
+    NodeError(AstNodeWrapper, String),          // AST node is wrong
 }
 
 use AstNode::*;
 use Bracket::*;
 use Keyword::*;
 use Operator::*;
-use ParserErrorType::*;
+use ParserError::*;
 use ParserResult::*;
 use Tk::*;
 
@@ -54,7 +67,6 @@ impl Parser {
         Parser {
             token_list,
             current_position: 0,
-            depth: 0,
             errors_counter: 0,
             file_name,
             symbol_table: SymbolTable::new(),
@@ -65,15 +77,25 @@ impl Parser {
     /// Parser::get_current
     ///
     /// Get the current token under exam
+    ///
+    /// @return [Tk]: current Tk
     fn get_current(&self) -> Tk {
         return self.token_list[self.current_position].clone().tk;
     }
 
     /// Parser::get_current_token
     ///
-    /// Get the full current token under exam
-    fn get_current_token(&mut self) -> Token {
-        return self.token_list[self.current_position].clone();
+    /// Get the wrapped current token under exam (with aux information)
+    /// Possibly advance
+    ///
+    /// @in advance[bool]: advance when true
+    /// @return [Token]: current token
+    fn get_current_token(&mut self, advance: bool) -> Token {
+        let res = self.token_list[self.current_position].clone();
+        if advance {
+            self.advance();
+        }
+        res
     }
 
     /// Parser::previous
@@ -81,20 +103,15 @@ impl Parser {
     /// Go to previous token
     fn previous(&mut self) {
         self.current_position -= 1;
-        debug_println!("Restoring {:?}", self.get_current());
     }
 
     /// Parser::advance
     ///
     /// Advance to next token
     fn advance(&mut self) {
-        debug_println!("Consuming {:?}", self.get_current());
         self.current_position += 1;
         if self.current_position as usize >= self.token_list.len() {
-            eprintln!(
-                "\x1b[91mFailed parsing with {} errors\x1b[0m",
-                self.errors_counter
-            );
+            eprintln!("\x1b[91mFailed parsing with {} errors\x1b[0m", self.errors_counter);
             exit(1);
         }
     }
@@ -106,24 +123,22 @@ impl Parser {
     /// @return [Option<AstNode>]: return the AST in case of success, None if an error occurred in the
     /// process
     pub fn parse(&mut self) -> Option<AstNodeWrapper> {
-        debug_println!("-> parse");
-
+        // Match a list of declarations
         match self.external_declaration_list() {
             Match(node) => {
+                // Next token must be EOF in order for the parsing to be correct. Otherwise spurious
+                // spurious tokens are present.
                 if self.get_current() != Tk::EOF {
-                    self.parser_error(TokenError("EOF".to_string()));
+                    self.parser_error(TokenError(format!("EOF")));
+                // Else, parsing is considered to be successfull if no errors where found in the process
                 } else if self.errors_counter == 0 {
-                    println!("{:#?}", self.symbol_table);
                     return Some(node);
                 }
             }
             _ => {}
         }
 
-        eprintln!(
-            "\x1b[91mFailed parsing with {} errors\x1b[0m",
-            self.errors_counter
-        );
+        eprintln!("\x1b[91mFailed parsing with {} errors\x1b[0m", self.errors_counter);
         return None;
     }
 
@@ -136,18 +151,16 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn external_declaration_list(&mut self) -> ParserResult {
-        debug_println!("-> external_declaration_list");
         let mut result: Vec<AstNodeWrapper> = Vec::new();
-        let mut source_ref = SourceReference {
-            ..Default::default()
-        };
+        let mut source_ref = SourceReference { ..Default::default() };
+        // While there is no EOF, match every found declaration and add it at the end of the list
+        // of declarations
         while self.get_current() != Tk::EOF {
-            match self.declaration() {
-                Match(node) => {
-                    source_ref = SourceReference::merge(&node.source_ref, &source_ref);
-                    result.push(node)
-                }
-                _ => return Fail,
+            if let Match(node) = self.declaration() {
+                source_ref = SourceReference::merge(&node.source_ref, &source_ref);
+                result.push(node)
+            } else {
+                return Fail;
             }
         }
         return Match(AstNodeWrapper {
@@ -169,238 +182,232 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn declaration(&mut self) -> ParserResult {
-        debug_println!("-> declaration");
+        // Each declaration starts with a type
         match self.pointer_type() {
-            Match(type_node) => match self.get_current() {
-                Tk::Identifier(id) => {
-                    let id_token = self.get_current_token();
-                    self.advance();
-                    match self.get_current() {
-                        Tk::Semicolon => {
-                            let token = self.get_current_token();
-                            self.advance();
-                            let source_ref = SourceReference::merge(
-                                &type_node.source_ref,
-                                &SourceReference::from_token(&token),
-                            );
-                            if let AstNode::TypeNode(t) = &type_node.node {
-                                let res = self.symbol_table.add_definition(&Declaration {
-                                    name: id.clone(),
-                                    return_type: t.clone(),
+            // After the type we expect an identifier
+            Match(type_node) => {
+                match self.get_current() {
+                    Tk::Identifier(id) => {
+                        let id_token = self.get_current_token(true);
+                        // If a semicolon is immediately following, a variable is declared without
+                        // initialization
+                        match self.get_current() {
+                            Tk::Semicolon => {
+                                // get current token and compute source reference
+                                let token = self.get_current_token(true);
+                                let source_ref = SourceReference::merge(&type_node.source_ref, &SourceReference::from_token(&token));
+                                // The variable is to be added to the symbol table, by checking that
+                                // the symbol was not already defined
+                                if let AstNode::TypeNode(t) = &type_node.node {
+                                    let res = self.symbol_table.add_definition(&Declaration {
+                                        name: id.clone(),
+                                        return_type: t.clone(),
+                                        ..Default::default()
+                                    });
+                                    if res.is_none() {
+                                        return self.parser_error(RedefintionError(id));
+                                    }
+                                }
+                                return Match(AstNodeWrapper {
+                                    node: AstNode::new_var_decl(&type_node, &id_token, &AstNodeWrapper { ..Default::default() }),
+                                    source_ref,
                                     ..Default::default()
                                 });
-                                if res.is_none() {
-                                    return self.parser_error(RedefintionError(id));
-                                }
                             }
-                            return Match(AstNodeWrapper {
-                                node: AstNode::new_var_decl(
-                                    &type_node,
-                                    &id_token,
-                                    &AstNodeWrapper {
-                                        ..Default::default()
-                                    },
-                                ),
-                                source_ref,
-                                ..Default::default()
-                            });
-                        }
-                        Tk::Operator(Assign) => {
-                            self.advance();
-                            match self.expression() {
-                                Match(expr) => {
-                                    if self.get_current() != Tk::Semicolon {
-                                        return self.parser_error(TokenError(";".to_string()));
-                                    }
-                                    let token = self.get_current_token();
-                                    self.advance();
-                                    let source_ref = SourceReference::merge(
-                                        &type_node.source_ref,
-                                        &SourceReference::from_token(&token),
-                                    );
-                                    let result = AstNodeWrapper {
-                                        node: AstNode::new_var_decl(&type_node, &id_token, &expr),
-                                        source_ref,
-                                        ..Default::default()
-                                    };
-                                    if !TypeWrapper::are_compatible(
-                                        &expr.type_ref,
-                                        &type_node.type_ref,
-                                    ) {
-                                        return self.parser_error(NodeError(
-                                            result,
-                                            String::from(format!(
-                                                "mismatched type at assignment: expected {}, found {}",
-                                                type_node.type_ref.to_string(),
-                                                expr.type_ref.to_string()
-                                            )),
-                                        ));
-                                    }
-                                    if let AstNode::TypeNode(t) = &type_node.node {
-                                        let res = self.symbol_table.add_definition(&Declaration {
-                                            name: id.clone(),
-                                            return_type: t.clone(),
-                                            ..Default::default()
-                                        });
-                                        if res.is_none() {
-                                            return self.parser_error(RedefintionError(id));
+                            Tk::Operator(Assign) => {
+                                self.advance();
+                                // Match following expression
+                                match self.expression() {
+                                    Match(expr) => {
+                                        // Semicolon must follow
+                                        if self.get_current() != Tk::Semicolon {
+                                            return self.parser_error(TokenError(";".to_string()));
                                         }
+                                        let token = self.get_current_token(true);
+                                        let source_ref = SourceReference::merge(&type_node.source_ref, &SourceReference::from_token(&token));
+                                        let result = AstNodeWrapper {
+                                            node: AstNode::new_var_decl(&type_node, &id_token, &expr),
+                                            source_ref,
+                                            ..Default::default()
+                                        };
+                                        // Type of the declaration and type of the expression must
+                                        // be compatible in order for the assignment to be valid
+                                        if !TypeWrapper::are_compatible(&expr.type_ref, &type_node.type_ref) {
+                                            return self.parser_error(NodeError(
+                                                result,
+                                                String::from(format!(
+                                                    "mismatched type at assignment: expected {}, found {}",
+                                                    type_node.type_ref.to_string(),
+                                                    expr.type_ref.to_string()
+                                                )),
+                                            ));
+                                        }
+                                        // Add definiton to the symbol table and handle redefintion
+                                        if let AstNode::TypeNode(t) = &type_node.node {
+                                            let res = self.symbol_table.add_definition(&Declaration {
+                                                name: id.clone(),
+                                                return_type: t.clone(),
+                                                ..Default::default()
+                                            });
+                                            if res.is_none() {
+                                                return self.parser_error(RedefintionError(id));
+                                            }
+                                        }
+                                        return Match(result);
                                     }
-                                    return Match(result);
+                                    _ => return Fail,
                                 }
-                                _ => Fail,
                             }
-                        }
-                        Tk::Bracket(LBracket) => {
-                            self.advance();
-                            match self.parameter_list() {
-                                Match(list) => {
-                                    let (body, source_ref);
-                                    if self.get_current() != Tk::Bracket(RBracket) {
-                                        return self.parser_error(TokenError(")".to_string()));
-                                    }
-                                    self.advance();
-                                    if let AstNode::FuncDeclNode(_, _, ref params, _) = list.node {
-                                        for elem in params {
-                                            if let AstNode::ParameterNode(name, t_n) = &elem.node {
-                                                if let AstNode::TypeNode(t) = &t_n.node {
-                                                    if let Tk::Identifier(n) = &name.tk {
-                                                        let res = self
-                                                            .symbol_table
-                                                            .add_to_next_scope(&Declaration {
+                            Tk::Bracket(LBracket) => {
+                                self.advance();
+                                // As a left bracket was found, a parameter list is expected
+                                match self.parameter_list() {
+                                    Match(list) => {
+                                        let (body, source_ref);
+                                        // after a parameter list, a right bracket is expected
+                                        if self.get_current() != Tk::Bracket(RBracket) {
+                                            return self.parser_error(TokenError(")".to_string()));
+                                        }
+                                        self.advance();
+                                        // The parameter list returns a function declaration node
+                                        // containing the parameters
+                                        if let AstNode::FuncDeclNode(_, _, ref params, _) = list.node {
+                                            // For each parameter, get type and name and add it to
+                                            // the next scope of declaration (inside the scope of
+                                            // the function)
+                                            for elem in params {
+                                                if let AstNode::ParameterNode(name, t_n) = &elem.node {
+                                                    if let AstNode::TypeNode(t) = &t_n.node {
+                                                        if let Tk::Identifier(n) = &name.tk {
+                                                            let res = self.symbol_table.add_to_next_scope(&Declaration {
                                                                 name: n.to_string(),
                                                                 return_type: t.clone(),
                                                                 ..Default::default()
                                                             });
-                                                        if res.is_none() {
-                                                            return self.parser_error(
-                                                                RedefintionError(n.to_string()),
-                                                            );
+                                                            // redefintion
+                                                            if res.is_none() {
+                                                                return self.parser_error(RedefintionError(n.to_string()));
+                                                            }
                                                         }
                                                     }
                                                 }
                                             }
                                         }
-                                    }
-                                    match self.compound_statement(false, &type_node.type_ref) {
-                                        Match(node) => {
-                                            if type_node.type_ref.type_native != TypeNative::Void {
-                                                if let AstNode::CompoundNode(list) = &node.node {
-                                                    if list.len() == 0 {
-                                                        return self.parser_error(NodeError(
-                                                            node.clone(),
-                                                            String::from(format!(
-                                                                "Missing return statement",
-                                                            )),
-                                                        ));
-                                                    }
-                                                    let last = list[&list.len() - 1].clone();
-                                                    let mut found_ret = false;
-                                                    if let JumpNode(ref tk, _) = last.node {
-                                                        if let Tk::Keyword(Return) = tk.tk {
-                                                            found_ret = true;
+                                        match self.compound_statement(false, &type_node.type_ref) {
+                                            Match(node) => {
+                                                // If the variable has a return type non-void, a
+                                                // return statement must be found having the
+                                                // correct expression type
+                                                if type_node.type_ref.type_native != TypeNative::Void {
+                                                    if let AstNode::CompoundNode(list) = &node.node {
+                                                        // List of statements is empty
+                                                        if list.len() == 0 {
+                                                            return self.parser_error(NodeError(
+                                                                node.clone(),
+                                                                String::from(format!("Missing return statement",)),
+                                                            ));
+                                                        }
+                                                        let mut found_ret = false;
+                                                        // Last statement
+                                                        if let JumpNode(ref tk, _) = list[&list.len() - 1].clone().node {
+                                                            if let Tk::Keyword(Return) = tk.tk {
+                                                                found_ret = true;
+                                                            }
+                                                        }
+                                                        // The return statement was not found
+                                                        if !found_ret {
+                                                            return self.parser_error(NodeError(
+                                                                list[&list.len() - 1].clone(),
+                                                                String::from(format!(
+                                                                    "Last statement must be return with type {}",
+                                                                    type_node.type_ref.to_string()
+                                                                )),
+                                                            ));
                                                         }
                                                     }
-                                                    if !found_ret {
-                                                        return self.parser_error(NodeError(
-                                                            node.clone(),
-                                                            String::from(format!(
-                                                                "Last statement must be return with type {}",
-                                                                type_node.type_ref.to_string()
-                                                            )),
-                                                        ));
-                                                    }
                                                 }
+                                                body = node;
+                                                source_ref = SourceReference::merge(&type_node.source_ref, &body.source_ref);
                                             }
-                                            body = node;
-                                            source_ref = SourceReference::merge(
-                                                &type_node.source_ref,
-                                                &body.source_ref,
-                                            );
+                                            _ => return Fail,
                                         }
-                                        _ => return Fail,
-                                    }
-                                    match list.node {
-                                        AstNode::FuncDeclNode(_, _, params, _) => {
-                                            let mut parameters_st = Vec::new();
-                                            for elem in &params {
-                                                if let AstNode::ParameterNode(_, t_n) = &elem.node {
-                                                    if let AstNode::TypeNode(t) = &t_n.node {
-                                                        parameters_st.push(t.clone());
+                                        match list.node {
+                                            // Extract list of type to be used in the symbol table
+                                            AstNode::FuncDeclNode(_, _, params, _) => {
+                                                let mut parameters_st = Vec::new();
+                                                for elem in &params {
+                                                    if let AstNode::ParameterNode(_, t_n) = &elem.node {
+                                                        if let AstNode::TypeNode(t) = &t_n.node {
+                                                            parameters_st.push(t.clone());
+                                                        }
                                                     }
                                                 }
-                                            }
-                                            if let AstNode::TypeNode(t) = &type_node.node {
-                                                let res = self.symbol_table.add_definition(
-                                                    &Declaration {
+                                                // Add definition to the symbol table
+                                                if let AstNode::TypeNode(t) = &type_node.node {
+                                                    let res = self.symbol_table.add_definition(&Declaration {
                                                         name: id.clone(),
                                                         return_type: t.clone(),
                                                         is_function: true,
                                                         arguments: parameters_st,
                                                         ..Default::default()
-                                                    },
-                                                );
-                                                if res.is_none() {
-                                                    return self.parser_error(RedefintionError(id));
+                                                    });
+                                                    if res.is_none() {
+                                                        return self.parser_error(RedefintionError(id));
+                                                    }
                                                 }
+                                                return Match(AstNodeWrapper {
+                                                    node: AstNode::new_func_decl(&type_node, &id_token, &params, &body),
+                                                    source_ref,
+                                                    ..Default::default()
+                                                });
                                             }
-                                            return Match(AstNodeWrapper {
-                                                node: AstNode::new_func_decl(
-                                                    &type_node, &id_token, &params, &body,
-                                                ),
-                                                source_ref,
+                                            _ => return Fail,
+                                        }
+                                    }
+                                    _ => return Fail,
+                                }
+                            }
+                            // Definition of array
+                            Tk::Bracket(LSquare) => {
+                                self.advance();
+                                // Expression to get the size of the array
+                                match self.expression() {
+                                    Match(node) => {
+                                        if self.get_current() != Tk::Bracket(RSquare) {
+                                            return self.parser_error(TokenError("]".to_string()));
+                                        }
+                                        self.advance();
+                                        if self.get_current() != Tk::Semicolon {
+                                            return self.parser_error(TokenError(";".to_string()));
+                                        }
+                                        let token = self.get_current_token(true);
+                                        let source_ref = SourceReference::merge(&type_node.source_ref, &SourceReference::from_token(&token));
+                                        if let AstNode::TypeNode(mut t) = type_node.node.clone() {
+                                            t.pointer += 1;
+                                            self.symbol_table.add_definition(&Declaration {
+                                                name: id,
+                                                return_type: t.clone(),
                                                 ..Default::default()
                                             });
                                         }
-                                        _ => return Fail,
-                                    }
-                                }
-                                _ => Fail,
-                            }
-                        }
-                        Tk::Bracket(LSquare) => {
-                            self.advance();
-                            match self.expression() {
-                                Match(node) => {
-                                    if self.get_current() != Tk::Bracket(RSquare) {
-                                        return self.parser_error(TokenError("]".to_string()));
-                                    }
-                                    self.advance();
-                                    if self.get_current() != Tk::Semicolon {
-                                        return self.parser_error(TokenError(";".to_string()));
-                                    }
-                                    let token = self.get_current_token();
-                                    let source_ref = SourceReference::merge(
-                                        &type_node.source_ref,
-                                        &SourceReference::from_token(&token),
-                                    );
-                                    self.advance();
-                                    if let AstNode::TypeNode(t) = &type_node.node {
-                                        let mut tt = t.clone();
-                                        tt.pointer += 1;
-                                        self.symbol_table.add_definition(&Declaration {
-                                            name: id,
-                                            return_type: tt.clone(),
+                                        return Match(AstNodeWrapper {
+                                            node: AstNode::new_array_decl(&type_node, &id_token, &node),
+                                            source_ref,
                                             ..Default::default()
                                         });
                                     }
-                                    return Match(AstNodeWrapper {
-                                        node: AstNode::new_array_decl(&type_node, &id_token, &node),
-                                        source_ref,
-                                        ..Default::default()
-                                    });
+                                    _ => return Fail,
                                 }
-                                _ => Fail,
                             }
-                        }
-                        _ => return self.parser_error(TokenError(String::from(""))),
+                            _ => return self.parser_error(TokenError(String::from(""))),
+                        };
+                    }
+                    _ => {
+                        return self.parser_error(TokenError("identifier".to_string()));
                     }
                 }
-                _ => {
-                    return self.parser_error(TokenError("identifier".to_string()));
-                }
-            },
-            _ => Fail,
+            }
+            _ => return Fail,
         }
     }
 
@@ -413,81 +420,48 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn parameter_list(&mut self) -> ParserResult {
-        debug_println!("-> parameter_list");
-
+        // List of parameters
         let mut result: Vec<AstNodeWrapper> = Vec::new();
-        if self.get_current() == Tk::Bracket(RBracket) {
-            return Match(AstNodeWrapper {
-                node: AstNode::new_func_decl(
-                    &AstNodeWrapper {
-                        ..Default::default()
-                    },
-                    &self.get_current_token(),
-                    &result,
-                    &AstNodeWrapper {
-                        ..Default::default()
-                    },
-                ),
-                ..Default::default()
-            });
-        }
-        match self.pointer_type() {
-            Match(type_node) => match self.get_current() {
-                Identifier(_) => {
-                    let token = self.get_current_token();
-                    self.advance();
-                    let source_ref = SourceReference::merge(
-                        &SourceReference::from_token(&token),
-                        &type_node.source_ref,
-                    );
-                    result.push(AstNodeWrapper {
-                        node: AstNode::new_parameter(&token, &type_node),
-                        source_ref,
-                        ..Default::default()
-                    });
-                    while self.get_current() == Tk::Operator(Operator::Comma) {
-                        self.advance();
-                        match self.pointer_type() {
-                            Match(type_node) => match self.get_current() {
-                                Identifier(_) => {
-                                    let token = self.get_current_token();
-                                    self.advance();
-                                    let source_ref = SourceReference::merge(
-                                        &SourceReference::from_token(&token),
-                                        &type_node.source_ref,
-                                    );
-                                    result.push(AstNodeWrapper {
-                                        node: AstNode::new_parameter(&token, &type_node),
-                                        source_ref,
-                                        ..Default::default()
-                                    });
-                                }
-                                _ => return Fail,
-                            },
-                            _ => return Fail,
+
+        // Handle case of empty list: loop over types only if current is not right bracket
+        if self.get_current() != Tk::Bracket(RBracket) {
+            loop {
+                match self.pointer_type() {
+                    Match(type_node) => match self.get_current() {
+                        Identifier(_) => {
+                            let token = self.get_current_token(true);
+                            let source_ref = SourceReference::merge(&SourceReference::from_token(&token), &type_node.source_ref);
+                            result.push(AstNodeWrapper {
+                                node: AstNode::new_parameter(&token, &type_node),
+                                source_ref,
+                                ..Default::default()
+                            });
+                            // Iterate again if next is comma
+                            if self.get_current() == Tk::Operator(Operator::Comma) {
+                                self.advance();
+                            // Error if next is not right bracket
+                            } else if self.get_current() != Tk::Bracket(Bracket::RBracket) {
+                                return self.parser_error(TokenError(")".to_string()));
+                            // If right bracket, stop loop
+                            } else {
+                                break;
+                            }
                         }
-                    }
-                    if self.get_current() != Tk::Bracket(RBracket) {
-                        return Fail;
-                    }
-                    return Match(AstNodeWrapper {
-                        node: AstNode::new_func_decl(
-                            &AstNodeWrapper {
-                                ..Default::default()
-                            },
-                            &self.get_current_token(),
-                            &result,
-                            &AstNodeWrapper {
-                                ..Default::default()
-                            },
-                        ),
-                        ..Default::default()
-                    });
+                        _ => return self.parser_error(TokenError("identifier".to_string())),
+                    },
+                    _ => return Fail,
                 }
-                _ => self.parser_error(TokenError("identifier".to_string())),
-            },
-            _ => Fail,
+            }
         }
+        return Match(AstNodeWrapper {
+            node: AstNode::new_func_decl(
+                &AstNodeWrapper { ..Default::default() },
+                &self.get_current_token(false),
+                &result,
+                &AstNodeWrapper { ..Default::default() },
+            ),
+            ..Default::default()
+        });
     }
 
     /// Parser::compound_statement
@@ -501,27 +475,25 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn compound_statement(&mut self, in_loop: bool, return_type: &TypeWrapper) -> ParserResult {
-        debug_println!("-> compound_statement");
-
         let mut result: Vec<AstNodeWrapper> = Vec::new();
         if self.get_current() != Tk::Bracket(LCurly) {
             return self.parser_error(TokenError("{".to_string()));
         }
-        let token_l = self.get_current_token();
-        self.advance();
+        let token_l = self.get_current_token(true);
+        // When entering a compound statement, a new scope is added
         self.symbol_table.add_scope();
         while self.get_current() != Tk::Bracket(RCurly) {
+            // Match a statement as long as possible
             match self.statement(in_loop, &return_type) {
                 Match(node) => {
+                    // Add to the list of node if different from null (empty semicolon)
                     if node.node != AstNode::NullNode {
                         result.push(node);
                     }
                 }
+                // In case of error, we skip the tokens until a new semicolon or a curly bracket
                 _ => {
-                    while self.get_current() != Tk::Bracket(RCurly)
-                        && self.get_current() != Tk::Semicolon
-                    {
-                        debug_println!("!! skipping token to due error");
+                    while self.get_current() != Tk::Bracket(RCurly) && self.get_current() != Tk::Semicolon {
                         self.advance();
                     }
                     if self.get_current() == Tk::Semicolon {
@@ -530,16 +502,16 @@ impl Parser {
                 }
             }
         }
+        // Remove scope
         self.symbol_table.remove_scope();
+        // Expect closed curly bracket to terminate scope
         if self.get_current() != Tk::Bracket(RCurly) {
             return self.parser_error(TokenError("}".to_string()));
         }
-        let token_r = self.get_current_token();
-        self.advance();
-        let source_ref = SourceReference::merge(
-            &SourceReference::from_token(&token_l),
-            &SourceReference::from_token(&token_r),
-        );
+        // create source referecne
+        let token_r = self.get_current_token(true);
+        let source_ref = SourceReference::merge(&SourceReference::from_token(&token_l), &SourceReference::from_token(&token_r));
+        // return compound statement
         return Match(AstNodeWrapper {
             node: AstNode::new_compound(&result),
             source_ref,
@@ -563,7 +535,7 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn statement(&mut self, in_loop: bool, return_type: &TypeWrapper) -> ParserResult {
-        debug_println!("-> statement");
+        // A declaration starts with a type or with a the `const` keyword
         if self.get_current().is_type() || self.get_current() == Tk::Keyword(Const) {
             match self.declaration() {
                 Match(node) => return Match(node),
@@ -573,16 +545,20 @@ impl Parser {
         }
 
         match self.get_current() {
+            // If left curly, then we have a compound statement
             Tk::Bracket(LCurly) => match self.compound_statement(in_loop, &return_type) {
                 Match(node) => return Match(node),
                 _ => return Fail,
             },
+            // If `if` token, then we have an if statement
             Tk::Keyword(Keyword::If) => match self.selection_statement(&return_type) {
                 Match(node) => return Match(node),
                 _ => return Fail,
             },
+            // If `break` or `continue` token, then we have jump statement
             Tk::Keyword(Break) | Tk::Keyword(Continue) => match self.jump_statement(&return_type) {
                 Match(node) => {
+                    // Such jump is allowed only in loop
                     if !in_loop {
                         return self.parser_error(NodeError(
                             node.clone(),
@@ -593,12 +569,14 @@ impl Parser {
                 }
                 _ => return Fail,
             },
+            // If `return` token, then we have a jump statement
             Tk::Keyword(Return) => match self.jump_statement(&return_type) {
                 Match(node) => {
                     return Match(node);
                 }
                 _ => return Fail,
             },
+            // If `while` or `for` token, then we have a loop
             Tk::Keyword(While) | Tk::Keyword(For) => match self.iteration_statement(&return_type) {
                 Match(node) => return Match(node),
                 _ => return Fail,
@@ -606,6 +584,8 @@ impl Parser {
             _ => {}
         }
 
+        // In all the other cases, we have an expression statement. If this returns fail, then
+        // there are no alternatives and the statement parsing returns fail
         match self.expression_statement() {
             Match(node) => return Match(node),
             _ => return Fail,
@@ -623,58 +603,26 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn jump_statement(&mut self, return_type: &TypeWrapper) -> ParserResult {
-        debug_println!("-> jump_statement");
-        let token = self.get_current_token();
+        let token = self.get_current_token(false);
+        let mut result_expr = AstNodeWrapper { ..Default::default() };
+        let source_ref: SourceReference;
         match self.get_current() {
             Tk::Keyword(Continue) | Tk::Keyword(Break) => {
                 self.advance();
-                if self.get_current() != Tk::Semicolon {
-                    return self.parser_error(TokenError(";".to_string()));
-                }
-                let semicolon = self.get_current_token();
-                self.advance();
-                let source_ref = SourceReference::merge(
-                    &SourceReference::from_token(&token),
-                    &SourceReference::from_token(&semicolon),
-                );
-                return Match(AstNodeWrapper {
-                    node: AstNode::new_jump(
-                        &token,
-                        &AstNodeWrapper {
-                            ..Default::default()
-                        },
-                    ),
-                    source_ref,
-                    ..Default::default()
-                });
             }
             Tk::Keyword(Return) => {
                 self.advance();
                 match self.optional_expression() {
                     Match(expr) => {
-                        if self.get_current() != Tk::Semicolon {
-                            return self.parser_error(TokenError(";".to_string()));
-                        }
-                        let semicolon = self.get_current_token();
-                        self.advance();
-                        let source_ref = SourceReference::merge(
-                            &SourceReference::from_token(&token),
-                            &SourceReference::from_token(&semicolon),
-                        );
-                        if return_type.type_native == TypeNative::Void
-                            && expr.node != AstNode::NullNode
-                        {
+                        // The type of the return expression must match the type of the return type
+                        // of the function. A non void function must have a return type
+                        if return_type.type_native == TypeNative::Void && expr.node != AstNode::NullNode {
                             return self.parser_error(NodeError(
                                 expr.clone(),
-                                String::from(format!(
-                                    "Function has type void but {} was found",
-                                    expr.type_ref.to_string()
-                                )),
+                                String::from(format!("Function has type void but {} was found", expr.type_ref.to_string())),
                             ));
                         }
-                        if return_type.type_native != TypeNative::Void
-                            && expr.type_ref != *return_type
-                        {
+                        if return_type.type_native != TypeNative::Void && expr.type_ref != *return_type {
                             return self.parser_error(NodeError(
                                 expr.clone(),
                                 String::from(format!(
@@ -684,17 +632,23 @@ impl Parser {
                                 )),
                             ));
                         }
-                        return Match(AstNodeWrapper {
-                            node: AstNode::new_jump(&token, &expr),
-                            source_ref,
-                            ..Default::default()
-                        });
+                        result_expr = expr;
                     }
-                    _ => Fail,
+                    _ => return Fail,
                 }
             }
             _ => return self.parser_error(TokenError("".to_string())),
         }
+        if self.get_current() != Tk::Semicolon {
+            return self.parser_error(TokenError(";".to_string()));
+        }
+        let semicolon = self.get_current_token(true);
+        source_ref = SourceReference::merge(&SourceReference::from_token(&token), &SourceReference::from_token(&semicolon));
+        return Match(AstNodeWrapper {
+            node: AstNode::new_jump(&token, &result_expr),
+            source_ref,
+            ..Default::default()
+        });
     }
 
     /// Parser::iteration_statement
@@ -710,88 +664,71 @@ impl Parser {
         debug_println!("-> iteration_statement");
         match self.get_current() {
             Tk::Keyword(For) => {
-                let token = self.get_current_token();
-                self.advance();
+                let token = self.get_current_token(true);
                 if self.get_current() != Tk::Bracket(LBracket) {
                     return self.parser_error(TokenError("(".to_string()));
                 }
                 self.advance();
-                match self.optional_expression() {
-                    Match(expr1) => {
+                // Match first expression
+                if let Match(expr1) = self.optional_expression() {
+                    if self.get_current() != Tk::Semicolon {
+                        return self.parser_error(TokenError(";".to_string()));
+                    }
+                    self.advance();
+                    // Match second expression
+                    if let Match(expr2) = self.optional_expression() {
                         if self.get_current() != Tk::Semicolon {
                             return self.parser_error(TokenError(";".to_string()));
                         }
                         self.advance();
-                        match self.optional_expression() {
-                            Match(expr2) => {
-                                if self.get_current() != Tk::Semicolon {
-                                    return self.parser_error(TokenError(";".to_string()));
-                                }
-                                self.advance();
-                                match self.optional_expression() {
-                                    Match(expr3) => {
-                                        if self.get_current() != Tk::Bracket(RBracket) {
-                                            return self.parser_error(TokenError(")".to_string()));
-                                        }
-                                        self.advance();
-                                        match self.compound_statement(true, &return_type) {
-                                            Match(body) => {
-                                                let source_ref = SourceReference::merge(
-                                                    &SourceReference::from_token(&token),
-                                                    &body.source_ref,
-                                                );
-                                                let result = AstNodeWrapper {
-                                                    node: AstNode::new_for(
-                                                        &expr1, &expr2, &expr3, &body,
-                                                    ),
-                                                    source_ref,
-                                                    ..Default::default()
-                                                };
-                                                return Match(result);
-                                            }
-                                            _ => Fail,
-                                        }
-                                    }
-                                    _ => Fail,
-                                }
+                        // Match third expression
+                        if let Match(expr3) = self.optional_expression() {
+                            if self.get_current() != Tk::Bracket(RBracket) {
+                                return self.parser_error(TokenError(")".to_string()));
                             }
-                            _ => Fail,
+                            self.advance();
+                            // Match body of the for loop
+                            if let Match(body) = self.compound_statement(true, &return_type) {
+                                let source_ref = SourceReference::merge(&SourceReference::from_token(&token), &body.source_ref);
+                                let result = AstNodeWrapper {
+                                    node: AstNode::new_for(&expr1, &expr2, &expr3, &body),
+                                    source_ref,
+                                    ..Default::default()
+                                };
+                                return Match(result);
+                            }
                         }
                     }
-                    _ => Fail,
                 }
+                return Fail;
             }
             Tk::Keyword(While) => {
-                let token = self.get_current_token();
-                self.advance();
-                match self.get_current() {
-                    Tk::Bracket(LBracket) => {
-                        self.advance();
-                        match self.expression() {
-                            Match(expr) => match self.get_current() {
-                                Tk::Bracket(RBracket) => {
-                                    self.advance();
-                                    match self.compound_statement(true, return_type) {
-                                        Match(body) => {
-                                            let source_ref = SourceReference::merge(
-                                                &SourceReference::from_token(&token),
-                                                &body.source_ref,
-                                            );
-                                            return Match(AstNodeWrapper {
-                                                node: AstNode::new_while(&expr, &body),
-                                                source_ref,
-                                                ..Default::default()
-                                            });
-                                        }
-                                        _ => Fail,
-                                    }
-                                }
-                                _ => return self.parser_error(TokenError(")".to_string())),
-                            },
-                            _ => Fail,
+                let token = self.get_current_token(true);
+                if let Tk::Bracket(LBracket) = self.get_current() {
+                    self.advance();
+                    // Match expression of while
+                    if let Match(expr) = self.expression() {
+                        if let Tk::Bracket(RBracket) = self.get_current() {
+                            self.advance();
+                            // Match body
+                            if let Match(body) = self.compound_statement(true, return_type) {
+                                let source_ref = SourceReference::merge(&SourceReference::from_token(&token), &body.source_ref);
+                                return Match(AstNodeWrapper {
+                                    node: AstNode::new_while(&expr, &body),
+                                    source_ref,
+                                    ..Default::default()
+                                });
+                            } else {
+                                return Fail;
+                            }
+                        } else {
+                            return self.parser_error(TokenError(")".to_string()));
                         }
+                    } else {
+                        return Fail;
                     }
-                    _ => return self.parser_error(TokenError("(".to_string())),
+                } else {
+                    return self.parser_error(TokenError("(".to_string()));
                 }
             }
             _ => {
@@ -810,43 +747,40 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn selection_statement(&mut self, return_type: &TypeWrapper) -> ParserResult {
-        debug_println!("-> selection_statement");
-        match self.get_current() {
-            Tk::Keyword(If) => {
-                let token = self.get_current_token();
-                self.advance();
-                if self.get_current() != Tk::Bracket(LBracket) {
-                    self.parser_error(TokenError("(".to_string()));
+        // Must match if token
+        if let Tk::Keyword(If) = self.get_current() {
+            let token = self.get_current_token(true);
+            if self.get_current() != Tk::Bracket(LBracket) {
+                self.parser_error(TokenError("(".to_string()));
+            }
+            self.advance();
+            // Match expression in the if condition
+            if let Match(expr) = self.expression() {
+                if self.get_current() != Tk::Bracket(RBracket) {
+                    self.parser_error(TokenError(")".to_string()));
                 }
                 self.advance();
-                match self.expression() {
-                    Match(expr) => {
-                        if self.get_current() != Tk::Bracket(RBracket) {
-                            self.parser_error(TokenError(")".to_string()));
+                // Match body of the if statement
+                match self.compound_statement(false, &return_type) {
+                    Match(body) => match self.else_statement(&return_type) {
+                        // Match else statement
+                        Match(else_body) => {
+                            let source_ref = SourceReference::merge(&SourceReference::from_token(&token), &body.source_ref);
+                            return Match(AstNodeWrapper {
+                                node: AstNode::new_if(&expr, &body, &else_body),
+                                source_ref,
+                                ..Default::default()
+                            });
                         }
-                        self.advance();
-                        match self.compound_statement(false, &return_type) {
-                            Match(body) => match self.else_statement(&return_type) {
-                                Match(else_body) => {
-                                    let source_ref = SourceReference::merge(
-                                        &SourceReference::from_token(&token),
-                                        &body.source_ref,
-                                    );
-                                    return Match(AstNodeWrapper {
-                                        node: AstNode::new_if(&expr, &body, &else_body),
-                                        source_ref,
-                                        ..Default::default()
-                                    });
-                                }
-                                _ => return Fail,
-                            },
-                            _ => return Fail,
-                        }
-                    }
+                        _ => return Fail,
+                    },
                     _ => return Fail,
                 }
+            } else {
+                return Fail;
             }
-            _ => self.parser_error(TokenError("if".to_string())),
+        } else {
+            return self.parser_error(TokenError("if".to_string()));
         }
     }
 
@@ -861,18 +795,15 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn else_statement(&mut self, return_type: &TypeWrapper) -> ParserResult {
-        debug_println!("-> else_statement");
+        // If else is not present, return an empty node
         if self.get_current() != Tk::Keyword(Else) {
-            return Match(AstNodeWrapper {
-                ..Default::default()
-            });
+            return Match(AstNodeWrapper { ..Default::default() });
         }
-        let token = self.get_current_token();
-        self.advance();
+        // Otherwise, parse the following compound statement
+        let token = self.get_current_token(true);
         match self.compound_statement(false, &return_type) {
             Match(mut node) => {
-                node.source_ref =
-                    SourceReference::merge(&SourceReference::from_token(&token), &node.source_ref);
+                node.source_ref = SourceReference::merge(&SourceReference::from_token(&token), &node.source_ref);
                 Match(node)
             }
             _ => Fail,
@@ -888,26 +819,22 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn expression_statement(&mut self) -> ParserResult {
-        debug_println!("-> expression_statement");
+        // Match optional expression (possibly empty)
         match self.optional_expression() {
             Match(node) => {
-                if self.get_current() == Tk::Semicolon {
-                    let token = self.get_current_token();
-                    self.advance();
-                    if node.node == AstNode::NullNode {
-                        return Match(node);
-                    }
-                    let source_ref = SourceReference::merge(
-                        &SourceReference::from_token(&token),
-                        &node.source_ref,
-                    );
-                    return Match(AstNodeWrapper {
-                        node: AstNode::new_expr_statement(&node),
-                        source_ref,
-                        ..Default::default()
-                    });
+                if self.get_current() != Tk::Semicolon {
+                    return self.parser_error(TokenError(";".to_string()));
                 }
-                return self.parser_error(TokenError(";".to_string()));
+                let token = self.get_current_token(true);
+                if node.node == AstNode::NullNode {
+                    return Match(node);
+                }
+                let source_ref = SourceReference::merge(&SourceReference::from_token(&token), &node.source_ref);
+                return Match(AstNodeWrapper {
+                    node: AstNode::new_expr_statement(&node),
+                    source_ref,
+                    ..Default::default()
+                });
             }
             _ => return Fail,
         }
@@ -923,20 +850,15 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn optional_expression(&mut self) -> ParserResult {
-        debug_println!("-> optional_expression");
+        // Allowed tokens to follow an empty expression
         match self.get_current() {
             Tk::Semicolon | Tk::Bracket(RBracket) => {
-                return Match(AstNodeWrapper {
-                    ..Default::default()
-                });
+                return Match(AstNodeWrapper { ..Default::default() });
             }
             _ => {}
         }
 
-        match self.expression() {
-            Match(node) => return Match(node),
-            _ => return Fail,
-        }
+        return self.expression();
     }
 
     /// Parser::expression
@@ -949,46 +871,45 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn expression(&mut self) -> ParserResult {
-        debug_println!("-> expression");
-
+        // While parsing expression, try to parse and unary expression followed by an assigment. If
+        // there are errors, then we have to backtrack to try with a logical expression. From that
+        // point on, errors are allowed
         let state_parser = self.clone();
         self.skip_erorrs = true;
+
         match self.unary_expression() {
             Match(node_unary) => {
                 self.skip_erorrs = false;
                 match self.get_current() {
                     Operator(Assign) => {
+                        // On the left side of an assignment only an lvalue is allowed
                         if !node_unary.is_lvalue {
                             return self.parser_error(NodeError(
                                 node_unary.clone(),
                                 String::from(format!("cannot assign as it is not an lvalue",)),
                             ));
                         }
+                        // Cannot assign to constant
                         if node_unary.type_ref.constant {
                             return self.parser_error(NodeError(
                                 node_unary.clone(),
-                                String::from(format!(
-                                    "cannot assign as variable is declared as const",
-                                )),
+                                String::from(format!("cannot assign as variable is declared as const",)),
                             ));
                         }
-                        let token = self.get_current_token();
-                        self.advance();
+                        let token = self.get_current_token(true);
                         match self.expression() {
                             Match(node) => {
-                                let source_ref = SourceReference::merge(
-                                    &node_unary.source_ref,
-                                    &node.source_ref,
-                                );
+                                let source_ref = SourceReference::merge(&node_unary.source_ref, &node.source_ref);
                                 let result = AstNodeWrapper {
                                     node: AstNode::new_binary(&token, &node_unary, &node),
                                     source_ref,
+                                    // An assigment is an lvalue
+                                    is_lvalue: true,
                                     ..Default::default()
                                 };
-                                if !TypeWrapper::are_compatible(
-                                    &node.type_ref,
-                                    &node_unary.type_ref,
-                                ) {
+                                // Type of the lvalue and type of the right expression must be
+                                // compatible
+                                if !TypeWrapper::are_compatible(&node.type_ref, &node_unary.type_ref) {
                                     return self.parser_error(NodeError(
                                         result,
                                         String::from(format!(
@@ -1008,12 +929,9 @@ impl Parser {
             }
             _ => {}
         }
-        debug_println!("~~ Backtracking ~~");
+        // Backtack and match logical expression (skip errors is now false)
         *self = state_parser;
-        match self.logical_expression() {
-            Match(node) => return Match(node),
-            _ => return Fail,
-        }
+        return self.logical_expression();
     }
 
     /// Parser::logical_expression
@@ -1030,33 +948,32 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn logical_expression(&mut self) -> ParserResult {
-        debug_println!("-> logical_expression");
-
+        // stack for nodes (to have right associativity)
         let mut op_stack: Vec<Token> = Vec::new();
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
 
+        // Match following expression
         match self.equality_expression() {
             Match(first) => {
                 node_stack.push(first.clone());
+                // Continue parsing expression until one of these tokens is found
                 while self.get_current() == Tk::Operator(AndOp)
                     || self.get_current() == Tk::Operator(OrOp)
                     || self.get_current() == Tk::Operator(XorOp)
                     || self.get_current() == Tk::Keyword(And)
                     || self.get_current() == Tk::Keyword(Or)
                 {
-                    op_stack.push(self.get_current_token());
-                    self.advance();
+                    op_stack.push(self.get_current_token(true));
                     match self.equality_expression() {
                         Match(node) => {
+                            // Cannot apply the operation on pointer type
                             if node.type_ref.pointer != 0 {
                                 return self.parser_error(NodeError(
                                     node.clone(),
-                                    String::from(format!(
-                                        "type {} cannot be used in current expression",
-                                        node.type_ref.to_string(),
-                                    )),
+                                    String::from(format!("type {} cannot be used in current expression", node.type_ref.to_string(),)),
                                 ));
                             }
+                            // Types must be compatible
                             if !TypeWrapper::are_compatible(&node.type_ref, &first.type_ref) {
                                 return self.parser_error(NodeError(
                                     node.clone(),
@@ -1072,6 +989,7 @@ impl Parser {
                         _ => return Fail,
                     }
                 }
+                // Handle nodes from right to left
                 let mut result = node_stack.remove(0);
                 let mut source_ref = result.source_ref.clone();
                 while node_stack.len() != 0 {
@@ -1086,6 +1004,7 @@ impl Parser {
                     };
                 }
 
+                // Only these tokens are valid as next nodes
                 if self.get_current() != Tk::Bracket(RBracket)
                     && self.get_current() != Tk::Semicolon
                     && self.get_current() != Tk::Bracket(RSquare)
@@ -1112,19 +1031,20 @@ impl Parser {
     fn equality_expression(&mut self) -> ParserResult {
         debug_println!("-> equality_expression");
 
+        // stack for nodes (to have right associativity)
         let mut op_stack: Vec<Token> = Vec::new();
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
 
+        // Match following expression
         match self.relational_expression() {
             Match(first) => {
                 node_stack.push(first.clone());
-                while self.get_current() == Tk::Operator(EqualCompare)
-                    || self.get_current() == Tk::Operator(DiffCompare)
-                {
-                    op_stack.push(self.get_current_token());
-                    self.advance();
+                // Continue parsing expression until one of these tokens is found
+                while self.get_current() == Tk::Operator(EqualCompare) || self.get_current() == Tk::Operator(DiffCompare) {
+                    op_stack.push(self.get_current_token(true));
                     match self.relational_expression() {
                         Match(node) => {
+                            // Cannot apply the operation on pointer type
                             if node.type_ref != first.type_ref {
                                 return self.parser_error(NodeError(
                                     node.clone(),
@@ -1135,6 +1055,7 @@ impl Parser {
                                     )),
                                 ));
                             }
+                            // Types must be compatible
                             if !TypeWrapper::are_compatible(&node.type_ref, &first.type_ref) {
                                 return self.parser_error(NodeError(
                                     node.clone(),
@@ -1150,6 +1071,7 @@ impl Parser {
                         _ => return Fail,
                     }
                 }
+                // Handle nodes from right to left
                 let mut result = node_stack.remove(0);
                 let mut source_ref = result.source_ref.clone();
                 while node_stack.len() != 0 {
@@ -1164,6 +1086,7 @@ impl Parser {
                     };
                 }
 
+                // Only these tokens are valid as next nodes
                 if self.get_current() != Tk::Bracket(RBracket)
                     && self.get_current() != Tk::Semicolon
                     && self.get_current() != Tk::Bracket(RSquare)
@@ -1197,30 +1120,31 @@ impl Parser {
     fn relational_expression(&mut self) -> ParserResult {
         debug_println!("-> relational_expression");
 
+        // stack for nodes (to have right associativity)
         let mut op_stack: Vec<Token> = Vec::new();
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
 
+        // Match following expression
         match self.shift_expression() {
             Match(first) => {
                 node_stack.push(first.clone());
+                // Continue parsing expression until one of these tokens is found
                 while self.get_current() == Tk::Operator(LECompare)
                     || self.get_current() == Tk::Operator(GECompare)
                     || self.get_current() == Tk::Operator(LTCompare)
                     || self.get_current() == Tk::Operator(GTCompare)
                 {
-                    op_stack.push(self.get_current_token());
-                    self.advance();
+                    op_stack.push(self.get_current_token(true));
                     match self.shift_expression() {
                         Match(node) => {
+                            // Cannot apply the operation on pointer type
                             if node.type_ref.pointer != 0 {
                                 return self.parser_error(NodeError(
                                     node.clone(),
-                                    String::from(format!(
-                                        "type {} cannot be used in current expression",
-                                        node.type_ref.to_string()
-                                    )),
+                                    String::from(format!("type {} cannot be used in current expression", node.type_ref.to_string())),
                                 ));
                             }
+                            // Types must be compatible
                             if !TypeWrapper::are_compatible(&node.type_ref, &first.type_ref) {
                                 return self.parser_error(NodeError(
                                     node.clone(),
@@ -1236,6 +1160,7 @@ impl Parser {
                         _ => return Fail,
                     }
                 }
+                // Handle nodes from right to left
                 let mut result = node_stack.remove(0);
                 let mut source_ref = result.source_ref.clone();
                 while node_stack.len() != 0 {
@@ -1250,6 +1175,7 @@ impl Parser {
                     };
                 }
 
+                // Only these tokens are valid as next nodes
                 if self.get_current() != Tk::Bracket(RBracket)
                     && self.get_current() != Tk::Semicolon
                     && self.get_current() != Tk::Bracket(RSquare)
@@ -1283,28 +1209,27 @@ impl Parser {
     fn shift_expression(&mut self) -> ParserResult {
         debug_println!("-> shift_expression");
 
+        // stack for nodes (to have right associativity)
         let mut op_stack: Vec<Token> = Vec::new();
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
 
+        // Match following expression
         match self.additive_expression() {
             Match(first) => {
                 node_stack.push(first.clone());
-                while self.get_current() == Tk::Operator(LShift)
-                    || self.get_current() == Tk::Operator(RShift)
-                {
-                    op_stack.push(self.get_current_token());
-                    self.advance();
+                // Continue parsing expression until one of these tokens is found
+                while self.get_current() == Tk::Operator(LShift) || self.get_current() == Tk::Operator(RShift) {
+                    op_stack.push(self.get_current_token(true));
                     match self.additive_expression() {
                         Match(node) => {
+                            // Cannot apply the operation on pointer type
                             if node.type_ref.pointer != 0 {
                                 return self.parser_error(NodeError(
                                     node.clone(),
-                                    String::from(format!(
-                                        "type {} cannot be used in current expression",
-                                        node.type_ref.to_string()
-                                    )),
+                                    String::from(format!("type {} cannot be used in current expression", node.type_ref.to_string())),
                                 ));
                             }
+                            // Types must be compatible
                             if !TypeWrapper::are_compatible(&node.type_ref, &first.type_ref) {
                                 return self.parser_error(NodeError(
                                     node.clone(),
@@ -1320,6 +1245,7 @@ impl Parser {
                         _ => return Fail,
                     }
                 }
+                // Handle nodes from right to left
                 let mut result = node_stack.remove(0);
                 let mut source_ref = result.source_ref.clone();
                 while node_stack.len() != 0 {
@@ -1334,6 +1260,7 @@ impl Parser {
                     };
                 }
 
+                // Only these tokens are valid as next nodes
                 if self.get_current() != Tk::Bracket(RBracket)
                     && self.get_current() != Tk::Semicolon
                     && self.get_current() != Tk::Bracket(RSquare)
@@ -1371,19 +1298,20 @@ impl Parser {
     fn additive_expression(&mut self) -> ParserResult {
         debug_println!("-> additive_expression");
 
+        // stack for nodes (to have right associativity)
         let mut op_stack: Vec<Token> = Vec::new();
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
 
+        // Match following expression
         match self.multiplicative_expression() {
             Match(first) => {
                 node_stack.push(first.clone());
-                while self.get_current() == Tk::Operator(Plus)
-                    || self.get_current() == Tk::Operator(Minus)
-                {
-                    op_stack.push(self.get_current_token());
-                    self.advance();
+                // Continue parsing expression until one of these tokens is found
+                while self.get_current() == Tk::Operator(Plus) || self.get_current() == Tk::Operator(Minus) {
+                    op_stack.push(self.get_current_token(true));
                     match self.multiplicative_expression() {
                         Match(node) => {
+                            // Types must be compatible
                             if !TypeWrapper::are_compatible(&node.type_ref, &first.type_ref) {
                                 return self.parser_error(NodeError(
                                     node.clone(),
@@ -1399,6 +1327,7 @@ impl Parser {
                         _ => return Fail,
                     }
                 }
+                // Handle nodes from right to left
                 let mut result = node_stack.remove(0);
                 let mut source_ref = result.source_ref.clone();
                 while node_stack.len() != 0 {
@@ -1413,6 +1342,7 @@ impl Parser {
                     };
                 }
 
+                // Only these tokens are valid as next nodes
                 if self.get_current() != Tk::Bracket(RBracket)
                     && self.get_current() != Tk::Semicolon
                     && self.get_current() != Tk::Bracket(RSquare)
@@ -1453,29 +1383,30 @@ impl Parser {
     fn multiplicative_expression(&mut self) -> ParserResult {
         debug_println!("-> multiplicative_expression");
 
+        // stack for nodes (to have right associativity)
         let mut op_stack: Vec<Token> = Vec::new();
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
 
+        // Match following expression
         match self.cast_expression() {
             Match(first) => {
                 node_stack.push(first.clone());
+                // Continue parsing expression until one of these tokens is found
                 while self.get_current() == Tk::Operator(Asterisk)
                     || self.get_current() == Tk::Operator(Slash)
                     || self.get_current() == Tk::Operator(Module)
                 {
-                    op_stack.push(self.get_current_token());
-                    self.advance();
+                    op_stack.push(self.get_current_token(true));
                     match self.cast_expression() {
                         Match(node) => {
+                            // Cannot apply the operation on pointer type
                             if node.type_ref.pointer != 0 {
                                 return self.parser_error(NodeError(
                                     node.clone(),
-                                    String::from(format!(
-                                        "type {} cannot be used in current expression",
-                                        node.type_ref.to_string()
-                                    )),
+                                    String::from(format!("type {} cannot be used in current expression", node.type_ref.to_string())),
                                 ));
                             }
+                            // Types must be compatible
                             if !TypeWrapper::are_compatible(&node.type_ref, &first.type_ref) {
                                 return self.parser_error(NodeError(
                                     node.clone(),
@@ -1491,6 +1422,7 @@ impl Parser {
                         _ => return Fail,
                     }
                 }
+                // Handle nodes from right to left
                 let mut result = node_stack.remove(0);
                 let mut source_ref = result.source_ref.clone();
                 while node_stack.len() != 0 {
@@ -1505,6 +1437,7 @@ impl Parser {
                     };
                 }
 
+                // Only these tokens are valid as next nodes
                 if self.get_current() != Tk::Bracket(RBracket)
                     && self.get_current() != Tk::Semicolon
                     && self.get_current() != Tk::Bracket(RSquare)
@@ -1546,19 +1479,17 @@ impl Parser {
         debug_println!("-> cast_expression");
         match self.get_current() {
             Tk::Bracket(LBracket) => {
-                let token_l = self.get_current_token();
-                self.advance();
+                let token_l = self.get_current_token(true);
+                // match cast
                 if self.get_current().is_type() || self.get_current() == Tk::Keyword(Const) {
                     match self.pointer_type() {
                         Match(type_node) => match self.get_current() {
                             Tk::Bracket(RBracket) => {
                                 self.advance();
+                                // match new cast expression
                                 match self.cast_expression() {
                                     Match(node) => {
-                                        let source_ref = SourceReference::merge(
-                                            &SourceReference::from_token(&token_l),
-                                            &node.source_ref,
-                                        );
+                                        let source_ref = SourceReference::merge(&SourceReference::from_token(&token_l), &node.source_ref);
                                         return Match(AstNodeWrapper {
                                             node: AstNode::new_cast(&type_node, &node),
                                             source_ref,
@@ -1600,26 +1531,26 @@ impl Parser {
         debug_println!("-> pointer_type");
         let mut pointer_counter = 0;
         let mut is_const = false;
-        let mut source_ref = SourceReference::from_token(&self.get_current_token());
+        let mut source_ref = SourceReference::from_token(&self.get_current_token(false));
+        // match const keyword (optional)
         if self.get_current() == Tk::Keyword(Const) {
             is_const = true;
             self.advance();
         }
+        // Match type
         match self.type_native() {
             Match(node) => {
                 source_ref = SourceReference::merge(&source_ref, &node.source_ref);
+                // Match pointers as long as there are asterisks
                 while self.get_current() == Tk::Operator(Asterisk) {
                     pointer_counter += 1;
-                    source_ref = SourceReference::merge(
-                        &source_ref,
-                        &SourceReference::from_token(&self.get_current_token()),
-                    );
-                    self.advance();
+                    source_ref = SourceReference::merge(&source_ref, &SourceReference::from_token(&self.get_current_token(true)));
                 }
                 match self.get_current() {
                     Tk::Identifier(_) | Tk::Bracket(RBracket) => {}
                     _ => return self.parser_error(TokenError("".to_string())),
                 }
+                // Return type node
                 match node.node {
                     AstNode::TypeNode(mut t) => {
                         t.constant = is_const;
@@ -1650,9 +1581,8 @@ impl Parser {
     fn type_native(&mut self) -> ParserResult {
         debug_println!("-> type_native");
         if self.get_current().is_type() {
-            let token = self.get_current_token();
+            let token = self.get_current_token(true);
             let source_ref = SourceReference::from_token(&token);
-            self.advance();
             let type_native = TypeNative::from_token(&token);
             return Match(AstNodeWrapper {
                 node: AstNode::new_type(&TypeWrapper {
@@ -1684,50 +1614,36 @@ impl Parser {
     fn unary_expression(&mut self) -> ParserResult {
         debug_println!("-> unary_expression");
         match self.get_current() {
-            Tk::Operator(Plus)
-            | Tk::Operator(Minus)
-            | Tk::Operator(Complement)
-            | Tk::Operator(AndOp)
-            | Tk::Operator(Asterisk) => {
-                let token = self.get_current_token();
-                self.advance();
+            Tk::Operator(Plus) | Tk::Operator(Minus) | Tk::Operator(Complement) | Tk::Operator(AndOp) | Tk::Operator(Asterisk) => {
+                let token = self.get_current_token(true);
                 match self.unary_expression() {
                     Match(node) => {
-                        let source_ref = SourceReference::merge(
-                            &SourceReference::from_token(&token),
-                            &node.source_ref,
-                        );
+                        let source_ref = SourceReference::merge(&SourceReference::from_token(&token), &node.source_ref);
                         let mut result = AstNodeWrapper {
                             node: AstNode::new_prefix(&token, &node),
                             source_ref,
                             ..Default::default()
                         };
                         let mut type_ref = node.type_ref.clone();
+                        // Dereferencing can be done only on pointers
                         if let Tk::Operator(Asterisk) = token.tk {
                             if type_ref.pointer == 0 {
-                                return self.parser_error(NodeError(
-                                    result,
-                                    String::from("Cannot dereference non-pointer type"),
-                                ));
+                                return self.parser_error(NodeError(result, String::from("Cannot dereference non-pointer type")));
                             }
                             type_ref.pointer -= 1;
                             result.is_lvalue = true;
+                        // Address can be extracted only from lvalues
                         } else if let Tk::Operator(AndOp) = token.tk {
                             if !node.is_lvalue {
-                                return self.parser_error(NodeError(
-                                    result,
-                                    String::from("Cannot extract address from rvalue"),
-                                ));
+                                return self.parser_error(NodeError(result, String::from("Cannot extract address from rvalue")));
                             }
                             type_ref.pointer += 1;
                             type_ref.type_native = TypeNative::U32;
                             result.is_lvalue = false;
+                        // Other unary operators can be applied only on non-pointer types
                         } else {
                             if type_ref.pointer == 1 {
-                                return self.parser_error(NodeError(
-                                    result,
-                                    String::from("Cannot apply unary operator on pointer type"),
-                                ));
+                                return self.parser_error(NodeError(result, String::from("Cannot apply unary operator on pointer type")));
                             }
                             result.is_lvalue = false;
                         };
@@ -1756,13 +1672,11 @@ impl Parser {
         debug_println!("-> postfix_expression");
         match self.primary_expression() {
             Match(mut node) => {
-                while self.get_current() == Tk::Bracket(LSquare)
-                    || self.get_current() == Tk::Bracket(LBracket)
-                {
+                // Postfix operators are left associative
+                while self.get_current() == Tk::Bracket(LSquare) || self.get_current() == Tk::Bracket(LBracket) {
                     match self.postfix_operator() {
                         Match(node_operator) => {
-                            let source_ref =
-                                SourceReference::merge(&node.source_ref, &node_operator.source_ref);
+                            let source_ref = SourceReference::merge(&node.source_ref, &node_operator.source_ref);
                             match node_operator.node {
                                 SelectorNode(_, op) => {
                                     let mut type_ref = node.type_ref.clone();
@@ -1773,26 +1687,19 @@ impl Parser {
                                         ..Default::default()
                                     };
                                     if type_ref.pointer == 0 {
-                                        return self.parser_error(NodeError(
-                                            node,
-                                            String::from("Cannot dereference non-pointer type"),
-                                        ));
+                                        return self.parser_error(NodeError(node, String::from("Cannot dereference non-pointer type")));
                                     }
                                     type_ref.pointer -= 1;
                                     node.type_ref = type_ref;
                                 }
+                                // In case of a procedure call, the node on the left must be an
+                                // identifier, and the types of the arguments must match. This is
+                                // checked by the function check_procedure
                                 ProcedureNode(_, op) => {
-                                    let check_result =
-                                        self.symbol_table.check_procedure(&node, &op);
+                                    let check_result = self.symbol_table.check_procedure(&node, &op);
                                     match check_result {
                                         Err((n, exp, got)) => {
-                                            return self.parser_error(NodeError(
-                                                n,
-                                                String::from(format!(
-                                                    "expected {}, found {}",
-                                                    exp, got
-                                                )),
-                                            ));
+                                            return self.parser_error(NodeError(n, String::from(format!("expected {}, found {}", exp, got))));
                                         }
                                         _ => {}
                                     }
@@ -1830,24 +1737,14 @@ impl Parser {
         debug_println!("-> postfix_operator");
         match self.get_current() {
             Tk::Bracket(LSquare) => {
-                let token_l = self.get_current_token();
-                self.advance();
+                let token_l = self.get_current_token(true);
                 match self.expression() {
                     Match(mut node) => match self.get_current() {
                         Tk::Bracket(RSquare) => {
-                            let token_r = self.get_current_token();
-                            let source_ref = SourceReference::merge(
-                                &SourceReference::from_token(&token_l),
-                                &SourceReference::from_token(&token_r),
-                            );
+                            let token_r = self.get_current_token(true);
+                            let source_ref = SourceReference::merge(&SourceReference::from_token(&token_l), &SourceReference::from_token(&token_r));
                             node.source_ref = source_ref.clone();
-                            self.advance();
-                            let new_node = AstNode::new_selector(
-                                &AstNodeWrapper {
-                                    ..Default::default()
-                                },
-                                &node,
-                            );
+                            let new_node = AstNode::new_selector(&AstNodeWrapper { ..Default::default() }, &node);
                             let result = AstNodeWrapper {
                                 node: new_node,
                                 source_ref,
@@ -1861,22 +1758,12 @@ impl Parser {
                 }
             }
             Tk::Bracket(LBracket) => {
-                let token_l = self.get_current_token();
-                self.advance();
+                let token_l = self.get_current_token(true);
                 match self.get_current() {
                     Tk::Bracket(RBracket) => {
-                        let token_r = self.get_current_token();
-                        let source_ref = SourceReference::merge(
-                            &SourceReference::from_token(&token_l),
-                            &SourceReference::from_token(&token_r),
-                        );
-                        self.advance();
-                        let new_node = AstNode::new_procedure(
-                            &AstNodeWrapper {
-                                ..Default::default()
-                            },
-                            &Vec::new(),
-                        );
+                        let token_r = self.get_current_token(true);
+                        let source_ref = SourceReference::merge(&SourceReference::from_token(&token_l), &SourceReference::from_token(&token_r));
+                        let new_node = AstNode::new_procedure(&AstNodeWrapper { ..Default::default() }, &Vec::new());
                         return Match(AstNodeWrapper {
                             node: new_node,
                             source_ref,
@@ -1932,7 +1819,7 @@ impl Parser {
         debug_println!("-> primary_expression");
         match self.get_current() {
             Tk::Identifier(_) | Tk::IntegerLiteral(_) | Tk::Char(_) => {
-                let token = self.get_current_token();
+                let token = self.get_current_token(true);
                 let source_ref = SourceReference::from_token(&token);
                 let node = AstNode::new_primary(&token);
                 let mut result = AstNodeWrapper {
@@ -1940,47 +1827,41 @@ impl Parser {
                     source_ref,
                     ..Default::default()
                 };
+                // Integrals are always u32
                 if let Tk::IntegerLiteral(_) = token.tk {
                     result.type_ref = TypeWrapper {
                         type_native: TypeNative::U32,
                         ..Default::default()
                     };
                 }
+                // Char are always u8
                 if let Tk::Char(_) = token.tk {
                     result.type_ref = TypeWrapper {
                         type_native: TypeNative::U8,
                         ..Default::default()
                     };
                 }
+                // Identifiers must be already defined
                 if let Tk::Identifier(ref name) = token.tk {
                     let result_search = self.symbol_table.search_definition(&name);
                     if let Err(message) = result_search {
-                        return self.parser_error(ParserErrorType::ScopeError(
-                            name.to_string(),
-                            message,
-                            result,
-                        ));
+                        return self.parser_error(ParserError::ScopeError(name.to_string(), message, result));
                     }
                     let declaration = result_search.unwrap();
                     result.is_lvalue = true;
                     result.type_ref = declaration.return_type;
                 }
-                self.advance();
                 return Match(result);
             }
+            // Parenthesis are handled as new expression
             Tk::Bracket(LBracket) => {
-                let token_l = self.get_current_token();
-                self.advance();
+                let token_l = self.get_current_token(true);
                 match self.expression() {
                     Match(mut node) => match self.get_current() {
                         Tk::Bracket(RBracket) => {
-                            let token_r = self.get_current_token();
-                            let source_ref = SourceReference::merge(
-                                &SourceReference::from_token(&token_l),
-                                &SourceReference::from_token(&token_r),
-                            );
+                            let token_r = self.get_current_token(true);
+                            let source_ref = SourceReference::merge(&SourceReference::from_token(&token_l), &SourceReference::from_token(&token_r));
                             node.source_ref = source_ref;
-                            self.advance();
                             return Match(node);
                         }
                         _ => return self.parser_error(TokenError(")".to_string())),
@@ -2021,12 +1902,7 @@ impl Parser {
                 }
                 if self.get_current() == Tk::Bracket(RBracket) {
                     self.advance();
-                    let node = AstNode::new_procedure(
-                        &AstNodeWrapper {
-                            ..Default::default()
-                        },
-                        &list,
-                    );
+                    let node = AstNode::new_procedure(&AstNodeWrapper { ..Default::default() }, &list);
                     return Match(AstNodeWrapper {
                         node,
                         source_ref,
@@ -2043,9 +1919,9 @@ impl Parser {
     ///
     /// Generate an error from the parser
     ///
-    /// @in error [ParserErrorType]: type of error to handle
+    /// @in error [ParserError]: type of error to handle
     /// @return [ParseResult]: Always Fail
-    fn parser_error(&mut self, error: ParserErrorType) -> ParserResult {
+    fn parser_error(&mut self, error: ParserError) -> ParserResult {
         if self.skip_erorrs {
             return Fail;
         }
@@ -2055,17 +1931,13 @@ impl Parser {
         let first_character = self.token_list[self.current_position].first_character;
         let file_lines = self.read_lines(&self.file_name);
 
-        eprint!(
-            "\x1b[34m{}:{}:{}: \x1b[0m",
-            self.file_name, line_number, first_character
-        );
+        eprint!("\x1b[34m{}:{}:{}: \x1b[0m", self.file_name, line_number, first_character);
 
         match error {
             ScopeError(found, expected, node) => {
                 eprintln!(
                     "\x1b[91merror parser: \x1b[0midentifier `\x1b[34m{}\x1b[0m` not found, did you mean `\x1b[34m{}\x1b[0m`?",
-                    found,
-                    expected
+                    found, expected
                 );
                 println!("");
                 for line_number in node.source_ref.init_line..=node.source_ref.last_line {
@@ -2073,9 +1945,7 @@ impl Parser {
                     eprint!("{}\t| {}\n\t| ", line_number, line);
                     for i in 0..line.len() {
                         if node.source_ref.init_line == node.source_ref.last_line {
-                            if i >= node.source_ref.init_char as usize - 1
-                                && i <= node.source_ref.last_char as usize - 1
-                            {
+                            if i >= node.source_ref.init_char as usize - 1 && i <= node.source_ref.last_char as usize - 1 {
                                 eprint!("\x1b[91m^\x1b[0m");
                             } else {
                                 eprint!(" ");
@@ -2100,10 +1970,7 @@ impl Parser {
                 }
             }
             RedefintionError(message) => {
-                eprintln!(
-                    "\x1b[91merror parser: \x1b[0mredefinition of identifier `\x1b[34m{}\x1b[0m`",
-                    message
-                );
+                eprintln!("\x1b[91merror parser: \x1b[0mredefinition of identifier `\x1b[34m{}\x1b[0m`", message);
             }
             TokenError(expected) => {
                 if expected.len() != 0 {
@@ -2113,20 +1980,13 @@ impl Parser {
                         self.get_current()
                     );
                 } else {
-                    eprintln!(
-                        "\x1b[91merror parser: \x1b[0munexpected token `\x1b[34m{}\x1b[0m`",
-                        self.get_current()
-                    );
+                    eprintln!("\x1b[91merror parser: \x1b[0munexpected token `\x1b[34m{}\x1b[0m`", self.get_current());
                 }
                 if line_number as usize > file_lines.len() {
                     return Fail;
                 }
 
-                eprint!(
-                    "{}\t| {}\n\t| ",
-                    line_number,
-                    file_lines[line_number as usize - 1]
-                );
+                eprint!("{}\t| {}\n\t| ", line_number, file_lines[line_number as usize - 1]);
 
                 for i in 0..last_character {
                     if i < first_character - 1 {
@@ -2147,9 +2007,7 @@ impl Parser {
                     eprint!("{}\t| {}\n\t| ", line_number, line);
                     for i in 0..line.len() {
                         if node.source_ref.init_line == node.source_ref.last_line {
-                            if i >= node.source_ref.init_char as usize - 1
-                                && i <= node.source_ref.last_char as usize - 1
-                            {
+                            if i >= node.source_ref.init_char as usize - 1 && i <= node.source_ref.last_char as usize - 1 {
                                 eprint!("\x1b[91m^\x1b[0m");
                             } else {
                                 eprint!(" ");

@@ -119,13 +119,7 @@ mod test {
             ..Default::default()
         };
         let if_decl1 = AstNodeWrapper {
-            node: AstNode::new_if(
-                &ast_expr3,
-                &ast_block1,
-                &AstNodeWrapper {
-                    ..Default::default()
-                },
-            ),
+            node: AstNode::new_if(&ast_expr3, &ast_block1, &AstNodeWrapper { ..Default::default() }),
             ..Default::default()
         };
         let ast_block2 = AstNodeWrapper {

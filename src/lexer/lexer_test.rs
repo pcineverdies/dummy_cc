@@ -13,10 +13,7 @@ mod test {
 ";
 
         assert_eq!(
-            Lexer::new(input_code.to_string(), false)
-                .unwrap()
-                .tokenize()
-                .unwrap(),
+            Lexer::new(input_code.to_string(), false).unwrap().tokenize().unwrap(),
             &[
                 Token {
                     tk: Tk::Keyword(Keyword::U16),
@@ -72,10 +69,7 @@ mod test {
 ";
 
         assert_eq!(
-            Lexer::new(input_code.to_string(), false)
-                .unwrap()
-                .tokenize()
-                .unwrap(),
+            Lexer::new(input_code.to_string(), false).unwrap().tokenize().unwrap(),
             &[
                 Token {
                     tk: Tk::Operator(Operator::EqualCompare),
@@ -150,10 +144,7 @@ mod test {
     ++
 ";
 
-        assert!(Lexer::new(input_code.to_string(), false)
-            .unwrap()
-            .tokenize()
-            .is_none());
+        assert!(Lexer::new(input_code.to_string(), false).unwrap().tokenize().is_none());
     }
 
     #[test]
@@ -171,10 +162,7 @@ mod test {
             break
 ";
 
-        assert!(Lexer::new(input_code.to_string(), false)
-            .unwrap()
-            .tokenize()
-            .is_none());
+        assert!(Lexer::new(input_code.to_string(), false).unwrap().tokenize().is_none());
     }
 
     #[test]
@@ -189,10 +177,7 @@ mod test {
 ";
 
         assert_eq!(
-            Lexer::new(input_code.to_string(), false)
-                .unwrap()
-                .tokenize()
-                .unwrap(),
+            Lexer::new(input_code.to_string(), false).unwrap().tokenize().unwrap(),
             &[
                 Token {
                     tk: Tk::Char('d'),
@@ -227,9 +212,6 @@ mod test {
 
 ";
 
-        assert!(Lexer::new(input_code.to_string(), false)
-            .unwrap()
-            .tokenize()
-            .is_none());
+        assert!(Lexer::new(input_code.to_string(), false).unwrap().tokenize().is_none());
     }
 }

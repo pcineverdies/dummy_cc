@@ -292,10 +292,7 @@ impl Lexer {
     //! @in [bool]: The string might be the text directly (used for testing purposes)
     //! @return [Result<Lexer, Box<dyn std::error::Error + 'static>>]: Lexer if the file could be
     //! opened, an error otherwise
-    pub fn new(
-        file_name: String,
-        is_file: bool,
-    ) -> Result<Lexer, Box<dyn std::error::Error + 'static>> {
+    pub fn new(file_name: String, is_file: bool) -> Result<Lexer, Box<dyn std::error::Error + 'static>> {
         let input_code = if is_file {
             let input_code_u8 = fs::read(file_name.clone())?;
             // Open file and read all the characters
@@ -454,10 +451,7 @@ impl Lexer {
             if str.is_some() {
                 return Some(Tk::String(str.unwrap()));
             } else {
-                self.lexer_error(format!(
-                    "Line {}: String is not closed",
-                    self.current_line_number
-                ));
+                self.lexer_error(format!("Line {}: String is not closed", self.current_line_number));
                 return None;
             }
         }
@@ -543,10 +537,7 @@ impl Lexer {
         // This must be handled through a loop as there might be more than one comment in a row
         loop {
             // A comment is found if the sequence // is found in the text
-            if self.current_char == '/'
-                && self.current_index + 1 < self.input_code.len()
-                && self.get_char(self.current_index + 1) == '/'
-            {
+            if self.current_char == '/' && self.current_index + 1 < self.input_code.len() && self.get_char(self.current_index + 1) == '/' {
                 // Go ahead until an end of line is found
                 loop {
                     self.advance_index();
@@ -673,9 +664,7 @@ impl Lexer {
             let without_prefix = str.trim_start_matches("0x");
             match u64::from_str_radix(without_prefix, 16) {
                 Ok(parsed_int) => return Some(parsed_int),
-                _ => {
-                    self.lexer_error(format!("Can't parse hexadecimal number {}", str).to_string())
-                }
+                _ => self.lexer_error(format!("Can't parse hexadecimal number {}", str).to_string()),
             };
         // If the string has an 'b', parse it as binary
         } else if str.contains("b") {
@@ -717,17 +706,10 @@ impl Lexer {
         let character_number = self.current_character_number;
         let file_lines = self.read_lines(&self.file_name);
 
-        eprint!(
-            "\x1b[34m{}:{}:{}: \x1b[0m",
-            self.file_name, line_number, self.current_first_character
-        );
+        eprint!("\x1b[34m{}:{}:{}: \x1b[0m", self.file_name, line_number, self.current_first_character);
         eprintln!("\x1b[91merror lexer: \x1b[34m{}\x1b[0m", error_str);
 
-        eprint!(
-            "{}\t| {}\n\t| ",
-            line_number,
-            file_lines[line_number as usize - 1]
-        );
+        eprint!("{}\t| {}\n\t| ", line_number, file_lines[line_number as usize - 1]);
 
         for i in 0..character_number {
             if i < self.current_first_character - 1 {

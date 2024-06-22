@@ -2,44 +2,54 @@ use core::panic;
 
 use crate::lexer::lexer_impl::{Keyword, Tk, Token};
 
+/// AstNode
+///
+/// Possible nodes from the AST
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum AstNode {
+    // ArrayDeclNode: Type of array, identifier, expression for size
     ArrayDeclNode(Box<AstNodeWrapper>, Token, Box<AstNodeWrapper>),
+    // BinaryNode: Token of operator, expression left and expression right
     BinaryNode(Token, Box<AstNodeWrapper>, Box<AstNodeWrapper>),
+    // CastNode: Type of casting and expression to cast
     CastNode(Box<AstNodeWrapper>, Box<AstNodeWrapper>),
+    // CompoundNode: List of statements
     CompoundNode(Vec<AstNodeWrapper>),
+    // DeclarationList: List of declarations
     DeclarationList(Vec<AstNodeWrapper>),
+    // ExprStatementNode: Expression to be used as statement
     ExprStatementNode(Box<AstNodeWrapper>),
-    ForNode(
-        Box<AstNodeWrapper>,
-        Box<AstNodeWrapper>,
-        Box<AstNodeWrapper>,
-        Box<AstNodeWrapper>,
-    ),
-    FuncDeclNode(
-        Box<AstNodeWrapper>,
-        Token,
-        Vec<AstNodeWrapper>,
-        Box<AstNodeWrapper>,
-    ),
-    IfNode(
-        Box<AstNodeWrapper>,
-        Box<AstNodeWrapper>,
-        Box<AstNodeWrapper>,
-    ),
+    // ForNode: First, second and third optional expression, body compound statement
+    ForNode(Box<AstNodeWrapper>, Box<AstNodeWrapper>, Box<AstNodeWrapper>, Box<AstNodeWrapper>),
+    // FuncDeclNode: Return type, identifier, list of arguments and body
+    FuncDeclNode(Box<AstNodeWrapper>, Token, Vec<AstNodeWrapper>, Box<AstNodeWrapper>),
+    // IfNode: Expression to be used as condition, if block and else (optional) block
+    IfNode(Box<AstNodeWrapper>, Box<AstNodeWrapper>, Box<AstNodeWrapper>),
+    // JumpNode: Token and expression (present only for return)
     JumpNode(Token, Box<AstNodeWrapper>),
+    // ParameterNode: Identifier and type of parameter
+    ParameterNode(Token, Box<AstNodeWrapper>),
+    // PrefixNode: Prefix operator and following expression
+    PrefixNode(Token, Box<AstNodeWrapper>),
+    // PrimaryNode: Token of primary node
+    PrimaryNode(Token),
+    // ProcedureNode: Primary node with the identifier of the funciton and list of arguments
+    ProcedureNode(Box<AstNodeWrapper>, Vec<AstNodeWrapper>),
+    // SelectorNode: Expression to dereference and expression to be used as selector value
+    SelectorNode(Box<AstNodeWrapper>, Box<AstNodeWrapper>),
+    // TypeNode: Type to be used
+    TypeNode(TypeWrapper),
+    // VarDeclNode: Type of the declaration, identifier and (optional) expression
+    VarDeclNode(Box<AstNodeWrapper>, Token, Box<AstNodeWrapper>),
+    // WhileNode: Conditino of the while, body
+    WhileNode(Box<AstNodeWrapper>, Box<AstNodeWrapper>),
     #[default]
     NullNode,
-    ParameterNode(Token, Box<AstNodeWrapper>),
-    PrefixNode(Token, Box<AstNodeWrapper>),
-    PrimaryNode(Token),
-    ProcedureNode(Box<AstNodeWrapper>, Vec<AstNodeWrapper>),
-    SelectorNode(Box<AstNodeWrapper>, Box<AstNodeWrapper>),
-    TypeNode(TypeWrapper),
-    VarDeclNode(Box<AstNodeWrapper>, Token, Box<AstNodeWrapper>),
-    WhileNode(Box<AstNodeWrapper>, Box<AstNodeWrapper>),
 }
 
+/// TypeNative
+///
+/// Possible list of native types in the language
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum TypeNative {
     U32,
@@ -53,6 +63,10 @@ pub enum TypeNative {
     Null,
 }
 
+/// TypeWrapper
+///
+/// Wrapper for a type native in order to inclue all the information related to the type: number of
+/// pointers and constant value
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TypeWrapper {
     pub type_native: TypeNative,
@@ -60,6 +74,10 @@ pub struct TypeWrapper {
     pub constant: bool,
 }
 
+/// SourceReference
+///
+/// For each node, we want to store the information about the beginning character and ending
+/// character in the source file
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct SourceReference {
     pub init_line: u32,
@@ -68,6 +86,9 @@ pub struct SourceReference {
     pub last_line: u32,
 }
 
+/// AstNodeWrapper
+///
+/// Wrapper fro the AST node, containg additional information about the node (TAstNode)
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct AstNodeWrapper {
     pub node: AstNode,
@@ -79,16 +100,6 @@ pub struct AstNodeWrapper {
 use AstNode::*;
 
 impl AstNode {
-    /// AstNode::new_null
-    ///
-    /// Create a NullNode
-    ///
-    /// @in [...] What is necessary to build the node
-    /// @return [AstNode] Built node
-    pub fn new_null() -> AstNode {
-        NullNode
-    }
-
     /// AstNode::new_declaration_list
     ///
     /// Create a DeclarationList
@@ -196,11 +207,7 @@ impl AstNode {
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
     pub fn new_if(an1: &AstNodeWrapper, an2: &AstNodeWrapper, an3: &AstNodeWrapper) -> AstNode {
-        IfNode(
-            Box::new(an1.clone()),
-            Box::new(an2.clone()),
-            Box::new(an3.clone()),
-        )
+        IfNode(Box::new(an1.clone()), Box::new(an2.clone()), Box::new(an3.clone()))
     }
 
     /// AstNode::new_while
@@ -219,18 +226,8 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_for(
-        an1: &AstNodeWrapper,
-        an2: &AstNodeWrapper,
-        an3: &AstNodeWrapper,
-        an4: &AstNodeWrapper,
-    ) -> AstNode {
-        ForNode(
-            Box::new(an1.clone()),
-            Box::new(an2.clone()),
-            Box::new(an3.clone()),
-            Box::new(an4.clone()),
-        )
+    pub fn new_for(an1: &AstNodeWrapper, an2: &AstNodeWrapper, an3: &AstNodeWrapper, an4: &AstNodeWrapper) -> AstNode {
+        ForNode(Box::new(an1.clone()), Box::new(an2.clone()), Box::new(an3.clone()), Box::new(an4.clone()))
     }
 
     /// AstNode::new_jump
@@ -269,18 +266,8 @@ impl AstNode {
     ///
     /// @in [...] What is necessary to build the node
     /// @return [AstNode] Built node
-    pub fn new_func_decl(
-        an1: &AstNodeWrapper,
-        an2: &Token,
-        an3: &Vec<AstNodeWrapper>,
-        an4: &AstNodeWrapper,
-    ) -> AstNode {
-        FuncDeclNode(
-            Box::new(an1.clone()),
-            an2.clone(),
-            an3.clone(),
-            Box::new(an4.clone()),
-        )
+    pub fn new_func_decl(an1: &AstNodeWrapper, an2: &Token, an3: &Vec<AstNodeWrapper>, an4: &AstNodeWrapper) -> AstNode {
+        FuncDeclNode(Box::new(an1.clone()), an2.clone(), an3.clone(), Box::new(an4.clone()))
     }
 
     /// AstNode::new_array_decl
@@ -335,18 +322,10 @@ impl AstNodeWrapper {
                 );
             }
             PrefixNode(tk, expr) => {
-                result += &format!(
-                    "({}{})",
-                    tk.tk.to_string().as_str(),
-                    expr.to_string(0).as_str()
-                );
+                result += &format!("({}{})", tk.tk.to_string().as_str(), expr.to_string(0).as_str());
             }
             CastNode(cn, expr) => {
-                result += &format!(
-                    "(({}){})",
-                    cn.to_string(0).as_str(),
-                    expr.to_string(0).as_str()
-                );
+                result += &format!("(({}){})", cn.to_string(0).as_str(), expr.to_string(0).as_str());
             }
             TypeNode(t) => {
                 result += &format!("{}", t.to_string());
@@ -384,11 +363,7 @@ impl AstNodeWrapper {
                 result += ";\n";
             }
             IfNode(expr, statements_if, statements_else) => {
-                result += &format!(
-                    "if({}){}",
-                    &expr.to_string(0).as_str(),
-                    &statements_if.to_string(indent).as_str()
-                );
+                result += &format!("if({}){}", &expr.to_string(0).as_str(), &statements_if.to_string(indent).as_str());
                 let else_print = statements_else.to_string(indent);
                 if else_print.len() as u32 > (indent as u32) * 2 {
                     result += &self.get_indent(indent);
@@ -396,11 +371,7 @@ impl AstNodeWrapper {
                 }
             }
             WhileNode(expr, statements) => {
-                result += &format!(
-                    "while({}){}",
-                    &expr.to_string(0).as_str(),
-                    &statements.to_string(indent).as_str()
-                );
+                result += &format!("while({}){}", &expr.to_string(0).as_str(), &statements.to_string(indent).as_str());
             }
             ForNode(decl, expr, ass, statements) => {
                 result += &format!(
@@ -416,19 +387,11 @@ impl AstNodeWrapper {
                     result += &format!("{};\n", kw.tk.to_string().as_str(),);
                 }
                 _ => {
-                    result += &format!(
-                        "{} {};\n",
-                        kw.tk.to_string().as_str(),
-                        expr.to_string(0).as_str()
-                    );
+                    result += &format!("{} {};\n", kw.tk.to_string().as_str(), expr.to_string(0).as_str());
                 }
             },
             VarDeclNode(tt, id, expr) => {
-                result += &format!(
-                    "{} {}",
-                    tt.to_string(0).as_str(),
-                    id.tk.to_string().as_str()
-                );
+                result += &format!("{} {}", tt.to_string(0).as_str(), id.tk.to_string().as_str());
                 if expr.node == NullNode {
                     result += &format!(";\n");
                 } else {
@@ -436,11 +399,7 @@ impl AstNodeWrapper {
                 }
             }
             FuncDeclNode(tt, id, args, body) => {
-                result += &format!(
-                    "{} {}(",
-                    tt.to_string(0).as_str(),
-                    id.tk.to_string().as_str()
-                );
+                result += &format!("{} {}(", tt.to_string(0).as_str(), id.tk.to_string().as_str());
                 for i in 0..args.len() {
                     result += &format!("{}", args[i].to_string(0).as_str(),);
                     if i != args.len() - 1 {
@@ -455,18 +414,10 @@ impl AstNodeWrapper {
                 }
             }
             ParameterNode(id, tt) => {
-                result += &format!(
-                    "{} {}",
-                    tt.to_string(0).as_str(),
-                    id.tk.to_string().as_str()
-                );
+                result += &format!("{} {}", tt.to_string(0).as_str(), id.tk.to_string().as_str());
             }
             ArrayDeclNode(tt, id, arg) => {
-                result += &format!(
-                    "{} {}",
-                    tt.to_string(0).as_str(),
-                    id.tk.to_string().as_str(),
-                );
+                result += &format!("{} {}", tt.to_string(0).as_str(), id.tk.to_string().as_str(),);
                 result += &format!("[{}];\n", arg.to_string(0).as_str(),);
             }
             DeclarationList(list) => {
@@ -504,9 +455,7 @@ impl SourceReference {
     /// @in sr1[&SourceReference] Second source reference object
     /// @return [SourceReference] Result of creation
     pub fn merge(sr1: &SourceReference, sr2: &SourceReference) -> SourceReference {
-        let mut result = SourceReference {
-            ..Default::default()
-        };
+        let mut result = SourceReference { ..Default::default() };
         // The first source reference object starts before the second one
         if sr1.init_line < sr2.init_line {
             result.init_line = sr1.init_line;
@@ -540,10 +489,12 @@ impl SourceReference {
 }
 
 impl TypeNative {
-    pub fn get_null() -> TypeNative {
-        TypeNative::Null
-    }
-
+    /// TypeNative::from_token
+    ///
+    /// Create a type native object starting from a valid token
+    ///
+    /// @in tk[&Token] Token to use
+    /// @return [TypeNative] Result
     pub fn from_token(tk: &Token) -> TypeNative {
         match &tk.tk {
             Tk::Keyword(k) => match k {
@@ -561,21 +512,14 @@ impl TypeNative {
             }
         }
     }
-
-    pub fn is_numeric(&self) -> bool {
-        match self {
-            TypeNative::U32 => true,
-            TypeNative::U16 => true,
-            TypeNative::U8 => true,
-            TypeNative::I32 => true,
-            TypeNative::I16 => true,
-            TypeNative::I8 => true,
-            _ => false,
-        }
-    }
 }
 
 impl TypeWrapper {
+    /// TypeWrapper::to_string
+    ///
+    /// Print the type with the const keyword, type and pointers
+    ///
+    /// @return [String] Result
     pub fn to_string(&self) -> String {
         let mut result = String::from("");
 
@@ -601,7 +545,16 @@ impl TypeWrapper {
         result
     }
 
+    /// TypeWrapper::are_compatible
+    ///
+    /// Check whether two types are compatible or not. This function can be expanded in order to
+    /// allow automatic casting
+    ///
+    /// @in a [&TypeWrapper]: first type
+    /// @in b [&TypeWrapper]: second type
+    /// @return [bool] result of the comparison
     pub fn are_compatible(a: &TypeWrapper, b: &TypeWrapper) -> bool {
+        // Both type and number of pointers must be identical
         if a.pointer != b.pointer || a.type_native != b.type_native {
             return false;
         }
@@ -610,6 +563,9 @@ impl TypeWrapper {
 }
 
 impl Default for TypeWrapper {
+    /// TypeWrapper::default
+    ///
+    /// Creates a new default TypeWrapper
     fn default() -> TypeWrapper {
         TypeWrapper {
             constant: false,
