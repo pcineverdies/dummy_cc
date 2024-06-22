@@ -135,9 +135,10 @@ impl SymbolTable {
     ///
     /// @in primary [&AstNodeWrapper]: primary node, left side of the procedure postfix operator
     /// @in args [&Vec<AstNodeWrapper>]: List of arguments
-    /// @return [Result<(), (AstNodeWrapper, String)>]: If something was wrong, returns the node
-    /// which caused the error together with an error message. Otherwise it returns Ok(())
-    pub fn check_procedure(&self, primary: &AstNodeWrapper, args: &Vec<AstNodeWrapper>) -> Result<(), (AstNodeWrapper, String, String)> {
+    /// @return [Result<Declaration, (AstNodeWrapper, String)>]: If something was wrong, returns the node
+    /// which caused the error together with an error message. Otherwise it returns the declaration
+    /// of the function
+    pub fn check_procedure(&self, primary: &AstNodeWrapper, args: &Vec<AstNodeWrapper>) -> Result<Declaration, (AstNodeWrapper, String, String)> {
         // Primary must be an indentifier
         let mut identifier = "";
         if let AstNode::PrimaryNode(n) = &primary.node {
@@ -175,7 +176,7 @@ impl SymbolTable {
             }
         }
 
-        return Ok(());
+        return Ok(decl.clone());
     }
 }
 

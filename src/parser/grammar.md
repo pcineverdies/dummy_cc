@@ -1,3 +1,7 @@
+# Grammar
+
+## Rules
+
 ```
 Expression ->    Logical_expression
             |    Unary_expression = Expression
@@ -28,7 +32,9 @@ Equality_expression_star -> == Equality_expression
 
 ```
 Relational_expression ->    Shift_expression Relational_expression_star
- 
+```
+
+``` 
 Relational_expression_star ->   > Relational_expression
                             |   < Relational_expression
                             |   >= Relational_expression
@@ -182,3 +188,26 @@ Optional_const ->   const
 ```
 Parameter_list ->   {Type_declaration identifier {, Type_declaration identifier}* }
 ```
+
+---
+
+## Additional constraints: 
+
+    - When declaring an array, the type of the expression for the size is `u32`;
+    - Cannot use identifier which was not already declared;
+    - In binary expressions, types must be identical;
+    - When calling functions, formal arguemnts must have the same type of declaration;
+    - A function must always end with a return statement;
+    - A compound statement defines a new scope; 
+    - There cannot be two identical identifiers simultaneously;
+    - `break` and `continue` can only be used in loops;
+    - `return` statement expression must have the same type of the function return;
+    - If function is declared as void, `return` statement cannot have an expression;
+    - Only binary operators `+` and `-` can be used with pointers;
+    - Unary operator `*` can only be used on pointers;
+    - Unary operator `&` can only be used on lvalues;
+    - Exclusing `*` and `&`, all the unary operators require non-pointer type;
+    - Unary operator `-` implies a conversion to `i32`;
+    - Postifx operator `[]` can be used only on pointers;
+    - Literal integers are always of type `u32`;
+    - Literal chars are always of type `u8`;

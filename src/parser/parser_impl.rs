@@ -132,6 +132,7 @@ impl Parser {
                     self.parser_error(TokenError(format!("EOF")));
                 // Else, parsing is considered to be successfull if no errors where found in the process
                 } else if self.errors_counter == 0 {
+                    println!("{:#?}", self.symbol_table);
                     return Some(node);
                 }
             }
@@ -371,6 +372,15 @@ impl Parser {
                                         self.advance();
                                         if self.get_current() != Tk::Semicolon {
                                             return self.parser_error(TokenError(";".to_string()));
+                                        }
+                                        if node.type_ref.pointer != 0 || node.type_ref.type_native != TypeNative::U32 {
+                                            return self.parser_error(NodeError(
+                                                node.clone(),
+                                                String::from(format!(
+                                                    "Cannot use type {} for array declaration (u32 only)",
+                                                    node.type_ref.to_string()
+                                                )),
+                                            ));
                                         }
                                         let token = self.get_current_token(true);
                                         let source_ref = SourceReference::merge(&type_node.source_ref, &SourceReference::from_token(&token));
@@ -1482,12 +1492,19 @@ impl Parser {
                                 match self.cast_expression() {
                                     Match(node) => {
                                         let source_ref = SourceReference::merge(&SourceReference::from_token(&token_l), &node.source_ref);
-                                        return Match(AstNodeWrapper {
+                                        let result = AstNodeWrapper {
                                             node: AstNode::new_cast(&type_node, &node),
                                             source_ref,
-                                            type_ref: type_node.type_ref,
+                                            type_ref: type_node.type_ref.clone(),
                                             ..Default::default()
-                                        });
+                                        };
+                                        if node.type_ref.type_native == TypeNative::Null || node.type_ref.type_native == TypeNative::Void {
+                                            return self.parser_error(NodeError(
+                                                result,
+                                                format!("Cannot cast {} into {}", node.type_ref.to_string(), type_node.type_ref.to_string()),
+                                            ));
+                                        }
+                                        return Match(result);
                                     }
                                     _ => return Fail,
                                 }
@@ -1638,6 +1655,10 @@ impl Parser {
                                 return self.parser_error(NodeError(result, String::from("Cannot apply unary operator on pointer type")));
                             }
                             result.is_lvalue = false;
+                            // When using the minus operator, convert the node to I32 type
+                            if let Tk::Operator(Minus) = token.tk {
+                                type_ref.type_native = TypeNative::I32;
+                            }
                         };
                         result.type_ref = type_ref;
                         return Match(result);
@@ -1689,15 +1710,19 @@ impl Parser {
                                 // checked by the function check_procedure
                                 ProcedureNode(_, op) => {
                                     let check_result = self.symbol_table.check_procedure(&node, &op);
+                                    let tt: TypeWrapper;
                                     match check_result {
                                         Err((n, exp, got)) => {
                                             return self.parser_error(NodeError(n, String::from(format!("expected {}, found {}", exp, got))));
                                         }
-                                        _ => {}
+                                        Ok(decl) => {
+                                            tt = decl.return_type;
+                                        }
                                     }
                                     node = AstNodeWrapper {
                                         node: AstNode::new_procedure(&node, &op),
                                         source_ref,
+                                        type_ref: tt,
                                         ..Default::default()
                                     };
                                 }
