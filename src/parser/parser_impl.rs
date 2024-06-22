@@ -259,6 +259,7 @@ impl Parser {
                                 }
                             }
                             Tk::Bracket(LBracket) => {
+                                let mut params_g: Vec<AstNodeWrapper> = vec![];
                                 self.advance();
                                 // As a left bracket was found, a parameter list is expected
                                 match self.parameter_list() {
@@ -272,12 +273,14 @@ impl Parser {
                                         // The parameter list returns a function declaration node
                                         // containing the parameters
                                         if let AstNode::FuncDeclNode(_, _, ref params, _) = list.node {
+                                            let mut parameters_st = Vec::new();
                                             // For each parameter, get type and name and add it to
                                             // the next scope of declaration (inside the scope of
                                             // the function)
                                             for elem in params {
                                                 if let AstNode::ParameterNode(name, t_n) = &elem.node {
                                                     if let AstNode::TypeNode(t) = &t_n.node {
+                                                        parameters_st.push(t.clone());
                                                         if let Tk::Identifier(n) = &name.tk {
                                                             let res = self.symbol_table.add_to_next_scope(&Declaration {
                                                                 name: n.to_string(),
@@ -290,6 +293,22 @@ impl Parser {
                                                             }
                                                         }
                                                     }
+                                                }
+                                            }
+                                            // Add definition to the symbol table. As this is done
+                                            // before handling the body of the function, recursion
+                                            // is possible
+                                            params_g = params.clone();
+                                            if let AstNode::TypeNode(t) = &type_node.node {
+                                                let res = self.symbol_table.add_definition(&Declaration {
+                                                    name: id.clone(),
+                                                    return_type: t.clone(),
+                                                    is_function: true,
+                                                    arguments: parameters_st,
+                                                    ..Default::default()
+                                                });
+                                                if res.is_none() {
+                                                    return self.parser_error(RedefintionError(id));
                                                 }
                                             }
                                         }
@@ -331,38 +350,11 @@ impl Parser {
                                             }
                                             _ => return Fail,
                                         }
-                                        match list.node {
-                                            // Extract list of type to be used in the symbol table
-                                            AstNode::FuncDeclNode(_, _, params, _) => {
-                                                let mut parameters_st = Vec::new();
-                                                for elem in &params {
-                                                    if let AstNode::ParameterNode(_, t_n) = &elem.node {
-                                                        if let AstNode::TypeNode(t) = &t_n.node {
-                                                            parameters_st.push(t.clone());
-                                                        }
-                                                    }
-                                                }
-                                                // Add definition to the symbol table
-                                                if let AstNode::TypeNode(t) = &type_node.node {
-                                                    let res = self.symbol_table.add_definition(&Declaration {
-                                                        name: id.clone(),
-                                                        return_type: t.clone(),
-                                                        is_function: true,
-                                                        arguments: parameters_st,
-                                                        ..Default::default()
-                                                    });
-                                                    if res.is_none() {
-                                                        return self.parser_error(RedefintionError(id));
-                                                    }
-                                                }
-                                                return Match(AstNodeWrapper {
-                                                    node: AstNode::new_func_decl(&type_node, &id_token, &params, &body),
-                                                    source_ref,
-                                                    ..Default::default()
-                                                });
-                                            }
-                                            _ => return Fail,
-                                        }
+                                        return Match(AstNodeWrapper {
+                                            node: AstNode::new_func_decl(&type_node, &id_token, &params_g, &body),
+                                            source_ref,
+                                            ..Default::default()
+                                        });
                                     }
                                     _ => return Fail,
                                 }
