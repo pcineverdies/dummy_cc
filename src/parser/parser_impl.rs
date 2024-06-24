@@ -132,7 +132,6 @@ impl Parser {
                     self.parser_error(TokenError(format!("EOF")));
                 // Else, parsing is considered to be successfull if no errors where found in the process
                 } else if self.errors_counter == 0 {
-                    println!("{:#?}", self.symbol_table);
                     return Some(node);
                 }
             }
@@ -315,35 +314,32 @@ impl Parser {
                                         }
                                         match self.compound_statement(false, &type_node.type_ref) {
                                             Match(node) => {
-                                                // If the variable has a return type non-void, a
-                                                // return statement must be found having the
+                                                // A return statement must be found having the
                                                 // correct expression type
-                                                if type_node.type_ref.type_native != TypeNative::Void {
-                                                    if let AstNode::CompoundNode(list) = &node.node {
-                                                        // List of statements is empty
-                                                        if list.len() == 0 {
-                                                            return self.parser_error(NodeError(
-                                                                node.clone(),
-                                                                String::from(format!("Missing return statement",)),
-                                                            ));
+                                                if let AstNode::CompoundNode(list) = &node.node {
+                                                    // List of statements is empty
+                                                    if list.len() == 0 {
+                                                        return self.parser_error(NodeError(
+                                                            node.clone(),
+                                                            String::from(format!("Missing return statement",)),
+                                                        ));
+                                                    }
+                                                    let mut found_ret = false;
+                                                    // Last statement
+                                                    if let JumpNode(ref tk, _) = list[&list.len() - 1].clone().node {
+                                                        if let Tk::Keyword(Return) = tk.tk {
+                                                            found_ret = true;
                                                         }
-                                                        let mut found_ret = false;
-                                                        // Last statement
-                                                        if let JumpNode(ref tk, _) = list[&list.len() - 1].clone().node {
-                                                            if let Tk::Keyword(Return) = tk.tk {
-                                                                found_ret = true;
-                                                            }
-                                                        }
-                                                        // The return statement was not found
-                                                        if !found_ret {
-                                                            return self.parser_error(NodeError(
-                                                                list[&list.len() - 1].clone(),
-                                                                String::from(format!(
-                                                                    "Last statement must be return with type {}",
-                                                                    type_node.type_ref.to_string()
-                                                                )),
-                                                            ));
-                                                        }
+                                                    }
+                                                    // The return statement was not found
+                                                    if !found_ret {
+                                                        return self.parser_error(NodeError(
+                                                            list[&list.len() - 1].clone(),
+                                                            String::from(format!(
+                                                                "Last statement must be return with type {}",
+                                                                type_node.type_ref.to_string()
+                                                            )),
+                                                        ));
                                                     }
                                                 }
                                                 body = node;

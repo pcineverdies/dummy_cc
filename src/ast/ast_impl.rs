@@ -512,6 +512,32 @@ impl TypeNative {
             }
         }
     }
+
+    /// TypeNative::get_size
+    ///
+    /// Get size in bytes of a give type
+    ///
+    /// @return [u32] size
+    pub fn get_size(&self) -> u32 {
+        match &self {
+            TypeNative::U8 | TypeNative::I8 => 1,
+            TypeNative::U16 | TypeNative::I16 => 2,
+            TypeNative::U32 | TypeNative::I32 => 4,
+            _ => panic!("Cannot get size of non-sized type"),
+        }
+    }
+
+    /// TypeNative::is_signed
+    ///
+    /// Is the type signed or not
+    ///
+    /// @return [bool] signed
+    pub fn is_signed(&self) -> bool {
+        match &self {
+            TypeNative::I8 | TypeNative::I16 | TypeNative::I32 => return true,
+            _ => return false,
+        }
+    }
 }
 
 impl TypeWrapper {

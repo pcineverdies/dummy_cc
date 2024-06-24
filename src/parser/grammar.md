@@ -120,7 +120,7 @@ Primary_expression ->   identifier
 ```
 
 ```
-Expression_list ->  Expression Expression_list_star
+    Expression_list ->  Expression Expression_list_star
 ```
 
 ```
