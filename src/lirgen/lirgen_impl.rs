@@ -71,18 +71,101 @@ impl Lirgen {
             IfNode(..) => return self.linearize_if_node(ast, get_address, break_dest, continue_dest),
             WhileNode(..) => return self.linearize_while_node(ast, get_address, break_dest, continue_dest),
             ForNode(..) => return self.linearize_for_node(ast, get_address, break_dest, continue_dest),
+            ArrayDeclNode(..) => return self.linearize_array_decl_node(ast, get_address, break_dest, continue_dest),
+            PrefixNode(..) => return self.linearize_prefix_node(ast, get_address, break_dest, continue_dest),
+            SelectorNode(..) => return self.linearize_selector_node(ast, get_address, break_dest, continue_dest),
             TypeNode(..) => panic!("TypeNode cannot be linearized!"),
             NullNode => panic!("NullNode cannot be linearized!"),
             ParameterNode(..) => panic!("ParameterNode cannot be linearized!"),
-            ArrayDeclNode(_, _, _) => return self.linearize_array_decl_node(ast, get_address, break_dest, continue_dest),
-            // PrefixNode(_, _) => {}
-            // SelectorNode(_, _) => {}
             _ => todo!(),
         }
     }
 
+    fn linearize_selector_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: &String, continue_dest: &String) -> LirgenResult {
+        if let AstNode::SelectorNode(left, right) = &ast.node {
+            let mut result = LirgenResult { ..Default::default() };
+            let mut l_lin = self.linearize(&left, true, &break_dest, &continue_dest);
+            let mut r_lin = self.linearize(&right, false, &break_dest, &continue_dest);
+
+            result.ir_list.append(&mut l_lin.ir_list);
+            result.ir_list.append(&mut r_lin.ir_list);
+
+            let size = if ast.type_ref.pointer > 0 {
+                4
+            } else {
+                ast.type_ref.type_native.get_size()
+            };
+
+            let constant_register = self.get_register();
+            let store_constant_node = MovC(constant_register, size);
+            result.ir_list.push(store_constant_node);
+
+            let offset_register = self.get_register();
+            let new_op = IrNode::Binary(Operator::LShift, offset_register, r_lin.result_register, constant_register, false);
+            result.ir_list.push(new_op);
+
+            let sum_register = self.get_register();
+            let new_op = IrNode::Binary(Operator::Plus, sum_register, l_lin.result_register, offset_register, false);
+            result.ir_list.push(new_op);
+            result.result_register = sum_register;
+
+            if !get_address {
+                let result_register = self.get_register();
+                let load_value = LoadR(result_register, result.result_register, size);
+                result.result_register = result_register;
+                result.ir_list.push(load_value);
+                result.result_register = result_register;
+            }
+            return result;
+        }
+        panic!("AstNode is not of type SelectorNode");
+    }
+
+    fn linearize_prefix_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: &String, continue_dest: &String) -> LirgenResult {
+        if let AstNode::PrefixNode(token, expr) = &ast.node {
+            let mut result = LirgenResult { ..Default::default() };
+            match &token.tk {
+                Tk::Operator(op) => {
+                    if *op == Operator::Not || *op == Operator::Plus || *op == Operator::Minus || *op == Operator::Complement {
+                        let mut exp_lin = self.linearize(&expr, false, &break_dest, &continue_dest);
+                        let result_register = self.get_register();
+                        result.ir_list.append(&mut exp_lin.ir_list);
+                        result.ir_list.push(IrNode::Unary(op.clone(), result_register, exp_lin.result_register));
+                        result.result_register = result_register;
+                        return result;
+                    } else if *op == Operator::Asterisk {
+                        let mut exp_lin = self.linearize(&expr, true, &break_dest, &continue_dest);
+                        result.ir_list.append(&mut exp_lin.ir_list);
+                        let result_register = self.get_register();
+                        let load_value = LoadR(result_register, exp_lin.result_register, 4);
+                        result.ir_list.push(load_value);
+                        result.result_register = result_register;
+                        if !get_address {
+                            let size = if ast.type_ref.pointer > 0 {
+                                4
+                            } else {
+                                ast.type_ref.type_native.get_size()
+                            };
+                            let result_register = self.get_register();
+                            let load_value = LoadR(result_register, result.result_register, size);
+                            result.result_register = result_register;
+                            result.ir_list.push(load_value);
+                            result.result_register = result_register;
+                        }
+                        return result;
+                    } else if *op == Operator::AndOp {
+                        return self.linearize(&expr, true, &break_dest, &continue_dest);
+                    }
+                }
+                _ => {}
+            }
+            panic!("Invalid token {} in PrefixNode", token.tk);
+        }
+        panic!("AstNode is not of type PrefixNode");
+    }
+
     fn linearize_array_decl_node(&mut self, ast: &AstNodeWrapper, _get_address: bool, _break_dest: &String, _continue_dest: &String) -> LirgenResult {
-        if let AstNode::ForNode(..) = &ast.node {
+        if let AstNode::ArrayDeclNode(..) = &ast.node {
             return LirgenResult { ..Default::default() };
         }
         panic!("AstNode is not of type ArrayDeclNode");
@@ -296,11 +379,12 @@ impl Lirgen {
             if expression.node != AstNode::NullNode {
                 expression_lin = self.linearize(&expression, get_address, &break_dest, &continue_dest);
             }
-            let store_node = StoreL(
-                Lirgen::get_identifier(&name),
-                expression_lin.result_register,
-                tt.type_ref.type_native.get_size(),
-            );
+            let size = if tt.type_ref.pointer > 0 {
+                4
+            } else {
+                tt.type_ref.type_native.get_size()
+            };
+            let store_node = StoreL(Lirgen::get_identifier(&name), expression_lin.result_register, size);
             expression_lin.ir_list.push(store_node);
             return expression_lin;
         }
@@ -357,8 +441,13 @@ impl Lirgen {
             if let Tk::Operator(Operator::Assign) = token.tk {
                 let mut exp1_lin = self.linearize(&exp1, true, &break_dest, &continue_dest);
                 let mut exp2_lin = self.linearize(&exp2, get_address, &break_dest, &continue_dest);
+                let size = if exp1.type_ref.pointer > 0 {
+                    4
+                } else {
+                    exp1.type_ref.type_native.get_size()
+                };
 
-                let new_op = IrNode::StoreR(exp1_lin.result_register, exp2_lin.result_register, exp1.type_ref.type_native.get_size());
+                let new_op = IrNode::StoreR(exp1_lin.result_register, exp2_lin.result_register, size);
 
                 result.ir_list.append(&mut exp1_lin.ir_list);
                 result.ir_list.append(&mut exp2_lin.ir_list);
@@ -544,7 +633,21 @@ impl IrNode {
             }
             FunctionStart => return String::from("  //! Prologue\n"),
             Return(r) => return format!("  ret v{r}\n  //! Epilogue\n"),
-            _ => todo!(),
+            Unary(tk, dest, src) => {
+                let mut result = "  ".to_string();
+
+                match tk {
+                    Operator::Minus => result += "neg",
+                    Operator::Plus => result += "plus",
+                    Operator::Complement => result += "comp",
+                    Operator::Not => result += "not",
+                    _ => panic!("Invalid binary operator {:#?}", tk),
+                }
+
+                result += &format!(" v{}, v{}\n", dest, src);
+
+                return result;
+            }
         }
     }
 

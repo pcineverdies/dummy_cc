@@ -1629,7 +1629,12 @@ impl Parser {
     fn unary_expression(&mut self) -> ParserResult {
         debug_println!("-> unary_expression");
         match self.get_current() {
-            Tk::Operator(Plus) | Tk::Operator(Minus) | Tk::Operator(Complement) | Tk::Operator(AndOp) | Tk::Operator(Asterisk) => {
+            Tk::Operator(Plus)
+            | Tk::Operator(Minus)
+            | Tk::Operator(Complement)
+            | Tk::Operator(AndOp)
+            | Tk::Operator(Asterisk)
+            | Tk::Operator(Not) => {
                 let token = self.get_current_token(true);
                 match self.unary_expression() {
                     Match(node) => {
@@ -1653,7 +1658,6 @@ impl Parser {
                                 return self.parser_error(NodeError(result, String::from("Cannot extract address from rvalue")));
                             }
                             type_ref.pointer += 1;
-                            type_ref.type_native = TypeNative::U32;
                             result.is_lvalue = false;
                         // Other unary operators can be applied only on non-pointer types
                         } else {
