@@ -273,6 +273,9 @@ impl Parser {
                                         // The parameter list returns a function declaration node
                                         // containing the parameters
                                         if let AstNode::FuncDeclNode(_, _, ref params, _) = list.node {
+                                            if id == "main" && params.len() != 0 {
+                                                return self.parser_error(NodeError(list, format!("Function main cannot have parameters")));
+                                            }
                                             let mut parameters_st = Vec::new();
                                             // For each parameter, get type and name and add it to
                                             // the next scope of declaration (inside the scope of
@@ -420,9 +423,11 @@ impl Parser {
     fn parameter_list(&mut self) -> ParserResult {
         // List of parameters
         let mut result: Vec<AstNodeWrapper> = Vec::new();
+        let mut source_ref_g: SourceReference = Default::default();
 
         // Handle case of empty list: loop over types only if current is not right bracket
         if self.get_current() != Tk::Bracket(RBracket) {
+            source_ref_g = SourceReference::from_token(&self.get_current_token(false));
             loop {
                 match self.pointer_type() {
                     Match(type_node) => match self.get_current() {
@@ -442,6 +447,7 @@ impl Parser {
                                 return self.parser_error(TokenError(")".to_string()));
                             // If right bracket, stop loop
                             } else {
+                                source_ref_g = SourceReference::merge(&source_ref_g, &SourceReference::from_token(&self.get_current_token(false)));
                                 break;
                             }
                         }
@@ -458,6 +464,7 @@ impl Parser {
                 &result,
                 &AstNodeWrapper { ..Default::default() },
             ),
+            source_ref: source_ref_g,
             ..Default::default()
         });
     }
@@ -549,7 +556,7 @@ impl Parser {
                 _ => return Fail,
             },
             // If `if` token, then we have an if statement
-            Tk::Keyword(Keyword::If) => match self.selection_statement(&return_type) {
+            Tk::Keyword(Keyword::If) => match self.selection_statement(in_loop, &return_type) {
                 Match(node) => return Match(node),
                 _ => return Fail,
             },
@@ -741,10 +748,11 @@ impl Parser {
     ///
     /// Selection_statement ->  if ( Expression ) Compound_statement Else_statement
     ///
+    /// @in in_loop [bool]: whether the statement is currently in a loop or not
     /// @in return_type [TypeWrapper]: expected return type
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
-    fn selection_statement(&mut self, return_type: &TypeWrapper) -> ParserResult {
+    fn selection_statement(&mut self, in_loop: bool, return_type: &TypeWrapper) -> ParserResult {
         // Must match if token
         if let Tk::Keyword(If) = self.get_current() {
             let token = self.get_current_token(true);
@@ -759,8 +767,8 @@ impl Parser {
                 }
                 self.advance();
                 // Match body of the if statement
-                match self.compound_statement(false, &return_type) {
-                    Match(body) => match self.else_statement(&return_type) {
+                match self.compound_statement(in_loop, &return_type) {
+                    Match(body) => match self.else_statement(in_loop, &return_type) {
                         // Match else statement
                         Match(else_body) => {
                             let source_ref = SourceReference::merge(&SourceReference::from_token(&token), &body.source_ref);
@@ -789,17 +797,18 @@ impl Parser {
     /// Else_statement ->   ε
     ///                 |   else Compound_statement
     ///
+    /// @in in_loop [bool]: whether the statement is currently in a loop or not
     /// @in return_type [TypeWrapper]: expected return type
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
-    fn else_statement(&mut self, return_type: &TypeWrapper) -> ParserResult {
+    fn else_statement(&mut self, in_loop: bool, return_type: &TypeWrapper) -> ParserResult {
         // If else is not present, return an empty node
         if self.get_current() != Tk::Keyword(Else) {
             return Match(AstNodeWrapper { ..Default::default() });
         }
         // Otherwise, parse the following compound statement
         let token = self.get_current_token(true);
-        match self.compound_statement(false, &return_type) {
+        match self.compound_statement(in_loop, &return_type) {
             Match(mut node) => {
                 node.source_ref = SourceReference::merge(&SourceReference::from_token(&token), &node.source_ref);
                 Match(node)
@@ -903,6 +912,7 @@ impl Parser {
                                     source_ref,
                                     // An assigment is an lvalue
                                     is_lvalue: true,
+                                    type_ref: node_unary.type_ref.clone(),
                                     ..Default::default()
                                 };
                                 // Type of the lvalue and type of the right expression must be

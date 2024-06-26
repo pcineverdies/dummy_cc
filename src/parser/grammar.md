@@ -211,3 +211,5 @@ Parameter_list ->   {Type_declaration identifier {, Type_declaration identifier}
     - Postifx operator `[]` can be used only on pointers;
     - Literal integers are always of type `u32`;
     - Literal chars are always of type `u8`;
+    - Function main cannot have parameters;
+    - Function cannot be called `init`;
