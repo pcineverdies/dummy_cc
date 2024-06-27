@@ -18,13 +18,11 @@ fn main() {
     let mut p = Parser::new(tokens.unwrap(), file_name.clone());
     let ast_wrapped = p.parse();
     if ast_wrapped.is_some() {
-        println!("{:#?}", &ast_wrapped.clone().unwrap());
         println!("{}", &ast_wrapped.clone().unwrap().to_string(0));
     } else {
         return;
     }
     let mut i = Lirgen::new();
     let ir = i.linearize_ast(&ast_wrapped.unwrap());
-    println!("{:#?}", ir);
-    println!("{}", Lirgen::to_string(&ir));
+    println!("{}", ir.to_string());
 }

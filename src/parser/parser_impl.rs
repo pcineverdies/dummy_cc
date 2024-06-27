@@ -437,6 +437,7 @@ impl Parser {
                             result.push(AstNodeWrapper {
                                 node: AstNode::new_parameter(&token, &type_node),
                                 source_ref,
+                                type_ref: type_node.type_ref.clone(),
                                 ..Default::default()
                             });
                             // Iterate again if next is comma
