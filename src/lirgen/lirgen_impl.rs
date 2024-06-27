@@ -57,6 +57,9 @@ pub struct Lirgen {
     current_register: u32,
     current_label: u32,
     variable_pointers: Vec<(String, u32)>,
+    variable_values: Vec<(String, u32)>,
+    constant_values: Vec<(u32, u32)>,
+    is_global: bool,
 }
 
 use AstNode::*;
@@ -71,6 +74,9 @@ impl Lirgen {
             current_register: 0,
             current_label: 0,
             variable_pointers: vec![],
+            variable_values: vec![],
+            constant_values: vec![],
+            is_global: false,
         };
     }
 
@@ -83,6 +89,36 @@ impl Lirgen {
         return None;
     }
 
+    fn get_variables(&self, s: &String) -> Option<u32> {
+        for elem in &self.variable_values {
+            if *elem.0 == *s {
+                return Some(elem.1);
+            }
+        }
+        return None;
+    }
+
+    fn get_constant(&self, c: u32) -> Option<u32> {
+        for elem in &self.constant_values {
+            if elem.0 == c {
+                return Some(elem.1);
+            }
+        }
+        return None;
+    }
+
+    fn add_constant(&mut self, r: u32, v: u32) {
+        self.constant_values.push((v, r));
+    }
+
+    fn add_variable(&mut self, s: &String, r: u32) {
+        self.variable_values.push((s.clone(), r));
+    }
+
+    fn clear_variable_values(&mut self) {
+        self.variable_values.clear();
+    }
+
     fn add_pointer_variable(&mut self, s: &String, r: u32) {
         self.variable_pointers.push((s.clone(), r));
     }
@@ -91,6 +127,8 @@ impl Lirgen {
         self.current_register = 0;
         self.current_label = 0;
         self.variable_pointers.clear();
+        self.variable_values.clear();
+        self.constant_values.clear();
     }
 
     fn get_register(&mut self) -> u32 {
@@ -153,9 +191,19 @@ impl Lirgen {
 
             let size = ast.type_ref.get_size();
 
-            let constant_register = self.get_register();
-            let store_constant_node = MovC(tt.clone(), constant_register, size);
-            result.ir_list.push(store_constant_node);
+            let constant_register;
+            match self.get_constant(size) {
+                Some(l) => {
+                    constant_register = l;
+                }
+                None => {
+                    let result_register = self.get_register();
+                    let store_constant_node = MovC(tt.clone(), result_register, size);
+                    result.ir_list.push(store_constant_node);
+                    constant_register = result_register;
+                    self.add_constant(result_register, size);
+                }
+            }
 
             let offset_register = self.get_register();
             let new_op = Binary(Operator::LShift, tt.clone(), offset_register, r_lin.result_register, constant_register);
@@ -244,7 +292,7 @@ impl Lirgen {
             let mut expression_lin = self.linearize(&expression, get_address, break_dest, continue_dest);
             let init_register = expression_lin.result_register;
             let result_register = self.get_register();
-            let store_node = Alloc(tt.type_ref.clone(), result_register, 0, false, init_register, true);
+            let store_node = Alloc(tt.type_ref.clone(), result_register, 0, self.is_global, init_register, true);
 
             result.ir_list.append(&mut expression_lin.ir_list);
             result.ir_list.push(store_node);
@@ -597,19 +645,36 @@ impl Lirgen {
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
     fn linearize_declaration_list(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
-        // !!! So far the gloabl delcarations are skipped, as I am not sure how to handle them
         let mut result = LirgenResult { ..Default::default() };
         let mut functions_decl: Vec<IrNode> = vec![];
+        let mut var_decl: Vec<IrNode> = vec![];
 
         if let AstNode::DeclarationList(list) = &ast.node {
             for elem in list {
                 if let AstNode::FuncDeclNode(..) = &elem.node {
                     let mut lin = self.linearize(&elem, get_address, break_dest, continue_dest);
                     functions_decl.append(&mut lin.ir_list);
+                    var_decl.append(&mut lin.ir_list);
+                    self.erase_registers();
                 }
-                self.erase_registers();
             }
 
+            for elem in list {
+                if let AstNode::FuncDeclNode(..) = &elem.node {
+                } else {
+                    self.is_global = true;
+                    let mut lin = self.linearize(&elem, get_address, break_dest, continue_dest);
+                    self.is_global = true;
+                    var_decl.append(&mut lin.ir_list);
+                }
+            }
+
+            var_decl.push(IrNode::Call("main".to_string(), TypeWrapper { ..Default::default() }, vec![], 0));
+            var_decl.push(Label(0));
+            var_decl.push(Branch(CompareType::Always, TypeWrapper { ..Default::default() }, 0, 0, 0));
+            let init_node = IrNode::FunctionDeclaration("init".to_string(), TypeWrapper { ..Default::default() }, vec![], var_decl);
+
+            result.ir_list.push(init_node);
             result.ir_list.append(&mut functions_decl);
             return result;
         }
@@ -634,11 +699,12 @@ impl Lirgen {
                 let mut expression_lin = self.linearize(expression, get_address, break_dest, continue_dest);
                 result.ir_list.append(&mut expression_lin.ir_list);
                 init_register = expression_lin.result_register;
+                self.add_variable(&Lirgen::get_identifier(name), init_register);
             } else {
                 init_register = 0;
             }
             let result_register = self.get_register();
-            let store_node = Alloc(tt.type_ref.clone(), result_register, init_register, false, 1, false);
+            let store_node = Alloc(tt.type_ref.clone(), result_register, init_register, self.is_global, 1, false);
             result.ir_list.push(store_node);
             result.result_register = result_register;
             self.add_pointer_variable(&Lirgen::get_identifier(name), result_register);
@@ -680,19 +746,35 @@ impl Lirgen {
                     if get_address {
                         return result;
                     }
-                    let result_register = self.get_register();
-                    let load_node = LoadR(ast.type_ref.clone(), result_register, load_register);
-                    result.ir_list.push(load_node);
-                    result.result_register = result_register;
+                    match self.get_variables(&id) {
+                        Some(l) => {
+                            result.result_register = l;
+                        }
+                        None => {
+                            let result_register = self.get_register();
+                            let load_node = LoadR(ast.type_ref.clone(), result_register, load_register);
+                            result.ir_list.push(load_node);
+                            result.result_register = result_register;
+                            self.add_variable(id, result_register);
+                        }
+                    }
                     return result;
                 }
                 Tk::IntegerLiteral(num) => {
-                    let result_register = self.get_register();
-                    let store_constant_node = MovC(ast.type_ref.clone(), result_register, *num as u32);
-                    return LirgenResult {
-                        ir_list: vec![store_constant_node],
-                        result_register,
-                    };
+                    let mut result: LirgenResult = Default::default();
+                    match self.get_constant(*num as u32) {
+                        Some(l) => {
+                            result.result_register = l;
+                        }
+                        None => {
+                            let result_register = self.get_register();
+                            let store_constant_node = MovC(ast.type_ref.clone(), result_register, *num as u32);
+                            result.ir_list.push(store_constant_node);
+                            result.result_register = result_register;
+                            self.add_constant(result_register, *num as u32);
+                        }
+                    }
+                    return result;
                 }
                 Tk::Char(c) => {
                     let result_register = self.get_register();
@@ -731,6 +813,17 @@ impl Lirgen {
                 result.ir_list.append(&mut exp1_lin.ir_list);
                 result.ir_list.append(&mut exp2_lin.ir_list);
                 result.ir_list.push(new_op);
+
+                match &exp1.node {
+                    AstNode::PrimaryNode(tk) => {
+                        for i in 0..self.variable_values.len() {
+                            if self.variable_values[i].0 == Lirgen::get_identifier(tk) {
+                                self.variable_values[i].1 = exp2_lin.result_register;
+                            }
+                        }
+                    }
+                    _ => self.clear_variable_values(),
+                }
 
                 if get_address {
                     result.result_register = exp1_lin.result_register;
@@ -828,7 +921,8 @@ impl Lirgen {
                     1,
                     false,
                 );
-                self.add_pointer_variable(&name_param, i as u32 + 1);
+                self.add_pointer_variable(&name_param, i as u32 + 1 + params.len() as u32);
+                self.add_variable(&name_param, i as u32 + 1);
                 ir_list.push(store_node);
             }
 
