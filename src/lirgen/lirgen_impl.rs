@@ -1,51 +1,6 @@
 use crate::ast::ast_impl::{AstNode, AstNodeWrapper, TypeWrapper};
 use crate::lexer::lexer_impl::{Keyword, Operator, Tk, Token};
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum CompareType {
-    Always,
-    GT,
-    GE,
-    LT,
-    LE,
-    EQ,
-    NE,
-    S,
-    NS,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum IrNode {
-    // List of nodes
-    Program(Vec<IrNode>),
-    // name of the function, return type, argument types, list of nodes
-    FunctionDeclaration(String, TypeWrapper, Vec<TypeWrapper>, Vec<IrNode>),
-    // type of the allocated data, destination register, source register, is global, size in bytes,
-    // from register
-    Alloc(TypeWrapper, u32, u32, bool, u32, bool),
-    // type of the returned value, source register
-    Return(TypeWrapper, u32),
-    // type of the data, destination register, constant value
-    MovC(TypeWrapper, u32, u32),
-    // destination type, source type, destination register, source register
-    Cast(TypeWrapper, TypeWrapper, u32, u32),
-    // type of the allocated data, destination address register, source register
-    Store(TypeWrapper, u32, u32),
-    // type of the allocated data, destination register, source label
-    LoadA(TypeWrapper, u32, String),
-    // type of the allocated data, destination register, source address register
-    LoadR(TypeWrapper, u32, u32),
-    // label
-    Label(u32),
-    // name of the function, return type, register arguments, return register
-    Call(String, TypeWrapper, Vec<u32>, u32),
-    // compare operation to use, type to use, source1, source2, label to jump to
-    Branch(CompareType, TypeWrapper, u32, u32, u32),
-    // operator, type, destination, source1, source2
-    Binary(Operator, TypeWrapper, u32, u32, u32),
-    // operator, type, destination, source
-    Unary(TypeWrapper, Operator, u32, u32),
-}
+use crate::lirgen::irnode::{CompareType, IrNode};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct LirgenResult {
@@ -59,7 +14,11 @@ pub struct Lirgen {
     variable_pointers: Vec<(String, u32)>,
     variable_values: Vec<(String, u32)>,
     constant_values: Vec<(u32, u32)>,
+    computed_binary: Vec<(Operator, u32, u32, u32)>,
     is_global: bool,
+    to_invalidate: bool,
+    to_invalidate_variable: Vec<String>,
+    to_invalidate_constant: Vec<u32>,
 }
 
 use AstNode::*;
@@ -76,10 +35,41 @@ impl Lirgen {
             variable_pointers: vec![],
             variable_values: vec![],
             constant_values: vec![],
+            computed_binary: vec![],
+            to_invalidate_variable: vec![],
+            to_invalidate_constant: vec![],
             is_global: false,
+            to_invalidate: false,
         };
     }
 
+    fn invalidate(&mut self) {
+        println!("{:?}", self.to_invalidate_variable);
+        for elem in &self.to_invalidate_constant {
+            for i in 0..self.constant_values.len() {
+                if elem == &self.constant_values[i].0 {
+                    self.constant_values.remove(i);
+                    break;
+                }
+            }
+        }
+
+        for elem in &self.to_invalidate_variable {
+            for i in 0..self.variable_values.len() {
+                if elem == &self.variable_values[i].0 {
+                    self.variable_values.remove(i);
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Lirgen::get_pointer_variable
+    ///
+    /// Add a stored pointer to variable
+    ///
+    /// @in s[&String]: name of the pointed variable
+    /// @return [Option<u32>]: None if the pointer is not stored, otherwise the register having it
     fn get_pointer_variable(&self, s: &String) -> Option<u32> {
         for elem in &self.variable_pointers {
             if *elem.0 == *s {
@@ -89,6 +79,12 @@ impl Lirgen {
         return None;
     }
 
+    /// Lirgen::get_variables
+    ///
+    /// Add a stored variable
+    ///
+    /// @in s[&String]: name of the variable
+    /// @return [Option<u32>]: None if the variable is not stored, otherwise the register having it
     fn get_variables(&self, s: &String) -> Option<u32> {
         for elem in &self.variable_values {
             if *elem.0 == *s {
@@ -98,6 +94,36 @@ impl Lirgen {
         return None;
     }
 
+    /// @in s[(Operator, u32, u32, u32)]: computed binary in the format (op, dest, src1, src2)
+    ///
+    /// Lirgen::get_computed_binary
+    ///
+    /// Search an already computed binary
+    ///
+    /// @in s1[u32]: first source
+    /// @in s2[u32]: second source
+    /// @in op[u32]: operator
+    /// @return [Option<u32>]: None if the variable is not stored, otherwise the register having it
+    fn get_computed_binary(&self, s1: u32, s2: u32, op: &Operator) -> Option<u32> {
+        for elem in &self.computed_binary {
+            if elem.0 == *op && elem.2 == s1 && elem.3 == s2 {
+                return Some(elem.1);
+            }
+            if *op == Operator::Plus || *op == Operator::Asterisk || *op == Operator::AndOp || *op == Operator::OrOp || *op == Operator::XorOp {
+                if elem.0 == *op && elem.3 == s1 && elem.2 == s2 {
+                    return Some(elem.1);
+                }
+            }
+        }
+        return None;
+    }
+
+    /// Lirgen::get_constant
+    ///
+    /// Add a stored constant
+    ///
+    /// @in c[u32]: value of the constant
+    /// @return [Option<u32>]: None if the constant is not stored, otherwise the register having it
     fn get_constant(&self, c: u32) -> Option<u32> {
         for elem in &self.constant_values {
             if elem.0 == c {
@@ -107,44 +133,110 @@ impl Lirgen {
         return None;
     }
 
+    /// Lirgen::add_constant
+    ///
+    /// Add a stored constant
+    ///
+    /// @in r[u32]: register in which the constant is stored
+    /// @in v[u32]: value of the constant
     fn add_constant(&mut self, r: u32, v: u32) {
+        if self.to_invalidate {
+            self.to_invalidate_constant.push(v);
+        }
         self.constant_values.push((v, r));
     }
 
+    /// Lirgen::add_variable
+    ///
+    /// Add a stored variable
+    ///
+    /// @in s[&String]: name of the variable
+    /// @in r[u32]: register in which the variable is stored
     fn add_variable(&mut self, s: &String, r: u32) {
+        if self.to_invalidate {
+            self.to_invalidate_variable.push(s.clone());
+        }
         self.variable_values.push((s.clone(), r));
     }
 
+    /// Lirgen::clear_variable_values
+    ///
+    /// Remove all the stored variables
     fn clear_variable_values(&mut self) {
         self.variable_values.clear();
     }
 
+    /// Lirgen::add_pointer_variable
+    ///
+    /// Add a stored pointer
+    ///
+    /// @in s[&String]: name of the variable pointed by the pointer
+    /// @in r[u32]: register in which the pointer is stored
     fn add_pointer_variable(&mut self, s: &String, r: u32) {
         self.variable_pointers.push((s.clone(), r));
     }
 
+    /// Lirgen::add_computed_binary
+    ///
+    /// Add a computed binary
+    ///
+    /// @in s[(Operator, u32, u32, u32)]: computed binary in the format (op, dest, src1, src2)
+    fn add_computed_binary(&mut self, s: (Operator, u32, u32, u32)) {
+        self.computed_binary.push(s.clone());
+    }
+
+    /// Lirgen::erase_registers
+    ///
+    /// Get rid of all the information stored in the IR generator
     fn erase_registers(&mut self) {
         self.current_register = 0;
         self.current_label = 0;
         self.variable_pointers.clear();
         self.variable_values.clear();
         self.constant_values.clear();
+        self.computed_binary.clear();
     }
 
+    /// Lirgen::get_register
+    ///
+    /// Get the next register to use
+    ///
+    /// @return [u32]: register
     fn get_register(&mut self) -> u32 {
         self.current_register += 1;
         return self.current_register;
     }
 
+    /// Lirgen::get_label
+    ///
+    /// Get the next label to use
+    ///
+    /// @return [u32]: label
     fn get_label(&mut self) -> u32 {
         self.current_label += 1;
         return self.current_label;
     }
 
+    /// Lirgen::linearize_ast
+    ///
+    /// Get the linearized version of the input ast
+    ///
+    /// @in ast[&AstNodeWrapper]: ast to linearize
+    /// @return [IrNode]: linearized version of type IrNode::Program
     pub fn linearize_ast(&mut self, ast: &AstNodeWrapper) -> IrNode {
         IrNode::Program(self.linearize(ast, false, 0, 0).ir_list)
     }
 
+    /// Lirgen::linearize
+    ///
+    /// Linearize an ast node
+    ///
+    /// @in ast[&AstNodeWrapper]: node to linearize
+    /// @in get_address[bool]: in case of an expression, whether we have to extract the address of
+    /// the operand (in case of an lvalue) or its value
+    /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
+    /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         match ast.node {
             DeclarationList(..) => return self.linearize_declaration_list(ast, get_address, break_dest, continue_dest),
@@ -178,6 +270,7 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_selector_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::SelectorNode(left, right) = &ast.node {
             let mut result = LirgenResult { ..Default::default() };
@@ -235,6 +328,7 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_prefix_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::PrefixNode(token, expr) = &ast.node {
             let mut result = LirgenResult { ..Default::default() };
@@ -286,6 +380,7 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_array_decl_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::ArrayDeclNode(tt, name, expression) = &ast.node {
             let mut result: LirgenResult = Default::default();
@@ -313,8 +408,15 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_for_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::ForNode(expr1, expr2, expr3, body) = &ast.node {
+            let old_to_invalidate = self.to_invalidate;
+            let old_to_invalidate_c = self.to_invalidate_constant.clone();
+            self.to_invalidate = true;
+            self.to_invalidate_variable = vec![];
+            self.variable_values.clear();
+
             let mut result = LirgenResult { ..Default::default() };
 
             let for_label = self.get_label();
@@ -374,6 +476,9 @@ impl Lirgen {
                 .push(IrNode::Branch(CompareType::Always, ast.type_ref.clone(), 0, 0, for_start_label));
             result.ir_list.push(IrNode::Label(for_end_label.clone()));
 
+            self.invalidate();
+            self.to_invalidate = old_to_invalidate;
+            self.to_invalidate_constant = old_to_invalidate_c;
             return result;
         }
         panic!("AstNode is not of type WhileNode");
@@ -388,8 +493,15 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_while_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::WhileNode(expr, body) = &ast.node {
+            let old_to_invalidate = self.to_invalidate;
+            let old_to_invalidate_c = self.to_invalidate_constant.clone();
+            self.to_invalidate = true;
+            self.to_invalidate_constant = vec![];
+            self.variable_values.clear();
+
             let mut result = LirgenResult { ..Default::default() };
             let while_label = self.get_label();
             let while_end_label = self.get_label();
@@ -438,6 +550,10 @@ impl Lirgen {
                 .push(IrNode::Branch(CompareType::Always, ast.type_ref.clone(), 0, 0, while_label));
             result.ir_list.push(IrNode::Label(while_end_label));
 
+            self.invalidate();
+            self.to_invalidate = old_to_invalidate;
+            self.to_invalidate_constant = old_to_invalidate_c;
+
             return result;
         }
         panic!("AstNode is not of type WhileNode");
@@ -452,8 +568,16 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_if_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::IfNode(expr, body, else_body) = &ast.node {
+            let old_to_invalidate = self.to_invalidate;
+            let old_to_invalidate_c = self.to_invalidate_constant.clone();
+            let old_to_invalidate_v = self.to_invalidate_variable.clone();
+            self.to_invalidate = true;
+            self.to_invalidate_variable = vec![];
+            self.to_invalidate_constant = vec![];
+
             let mut result = LirgenResult { ..Default::default() };
 
             let if_next_label = self.get_label();
@@ -515,6 +639,11 @@ impl Lirgen {
             }
             result.ir_list.push(IrNode::Label(if_end_label));
 
+            self.invalidate();
+            self.to_invalidate = old_to_invalidate;
+            self.to_invalidate_constant = old_to_invalidate_c;
+            self.to_invalidate_variable = old_to_invalidate_v;
+
             return result;
         }
 
@@ -530,6 +659,7 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_procedure_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::ProcedureNode(primary, params) = &ast.node {
             let mut result = LirgenResult { ..Default::default() };
@@ -563,6 +693,7 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_jump_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::JumpNode(token, expr) = &ast.node {
             let mut result = LirgenResult { ..Default::default() };
@@ -603,6 +734,7 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_expr_statement_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::ExprStatementNode(expr) = &ast.node {
             return self.linearize(expr, get_address, break_dest, continue_dest);
@@ -620,6 +752,7 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_compound_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::CompoundNode(list) = &ast.node {
             let mut result = LirgenResult { ..Default::default() };
@@ -644,6 +777,7 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_declaration_list(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         let mut result = LirgenResult { ..Default::default() };
         let mut functions_decl: Vec<IrNode> = vec![];
@@ -691,6 +825,7 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_var_decl_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::VarDeclNode(tt, name, expression) = &ast.node {
             let mut result: LirgenResult = Default::default();
@@ -723,6 +858,7 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_primary_node(&mut self, ast: &AstNodeWrapper, get_address: bool, _break_dest: u32, _continue_dest: u32) -> LirgenResult {
         if let AstNode::PrimaryNode(token) = &ast.node {
             match &token.tk {
@@ -800,6 +936,7 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_binary_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::BinaryNode(token, exp1, exp2) = &ast.node {
             let mut result: LirgenResult = Default::default();
@@ -819,6 +956,7 @@ impl Lirgen {
                         for i in 0..self.variable_values.len() {
                             if self.variable_values[i].0 == Lirgen::get_identifier(tk) {
                                 self.variable_values[i].1 = exp2_lin.result_register;
+                                self.to_invalidate_variable.push(self.variable_values[i].0.clone());
                             }
                         }
                     }
@@ -838,7 +976,16 @@ impl Lirgen {
             let mut exp2_lin = self.linearize(&exp2, get_address, break_dest, continue_dest);
             let operator = Lirgen::get_operator(&token);
 
+            match self.get_computed_binary(exp1_lin.result_register, exp2_lin.result_register, &operator) {
+                Some(dest) => {
+                    result.result_register = dest;
+                    return result;
+                }
+                None => {}
+            }
+
             let result_register = self.get_register();
+            self.add_computed_binary((operator.clone(), result_register, exp1_lin.result_register, exp2_lin.result_register));
 
             let new_op = IrNode::Binary(
                 operator,
@@ -868,6 +1015,7 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_cast_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::CastNode(dest_type, exp) = &ast.node {
             let mut exp_lin = self.linearize(&exp, get_address, break_dest, continue_dest);
@@ -899,6 +1047,7 @@ impl Lirgen {
     /// the operand (in case of an lvalue) or its value
     /// @in break_dest[u32]: in case of a loop, label to jump for break instructions
     /// @in continue_dest[u32]: in case of a loop, label to jump for continue instructions
+    /// @return [LirgenResult]: result of the conversion
     fn linearize_func_decl_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::FuncDeclNode(rt, name, params, body) = &ast.node {
             let mut result = LirgenResult { ..Default::default() };
@@ -964,178 +1113,5 @@ impl Lirgen {
             return o.clone();
         }
         panic!("Cannot extract operator from non-identifier token: {:#?}", token);
-    }
-}
-
-impl IrNode {
-    pub fn to_string(&self) -> String {
-        match &self {
-            Program(list) => {
-                let mut result = "".to_string();
-                for l in list {
-                    result += &l.to_string();
-                }
-                return result;
-            }
-            FunctionDeclaration(name, tt, arguments, nodes) => {
-                let mut result = format!("\nfunction<{}> {} (", tt.to_string(), name);
-                for i in 0..arguments.len() {
-                    result += &format!("v{}<{}>", i + 1, arguments[i].to_string());
-                    if i != arguments.len() - 1 {
-                        result += &format!(", ");
-                    }
-                }
-                result += &format!(") {{\n");
-
-                for node in nodes {
-                    result += &node.to_string();
-                }
-
-                return result + &format!("}}\n");
-            }
-            Return(tt, src) => {
-                if *src != 0 {
-                    return format!("\treturn<{}> v{}\n", tt.to_string(), src);
-                }
-                return format!("\treturn\n");
-            }
-            Alloc(tt, dest, src, is_global, size, from_reg) => {
-                let mut result = format!("\tv{} = alloc<{}> ", dest, tt.to_string());
-                if *src != 0 {
-                    result += &format!("v{} ", src);
-                }
-                if *from_reg {
-                    result += &format!("[v{}] ", size);
-                } else {
-                    result += &format!("[{}] ", size);
-                }
-                if *is_global {
-                    result += &format!(" !global ");
-                }
-
-                return result + &format!("\n");
-            }
-            MovC(tt, dest, src) => {
-                return format!("\tv{} = <{}> ${}\n", dest, tt.to_string(), src);
-            }
-            Cast(ttd, tts, dest, src) => {
-                return format!("\tv{} = <{}><{}> v{}\n", dest, ttd.to_string(), tts.to_string(), src);
-            }
-            Store(tt, dest, src) => {
-                return format!("\tstore<{}> v{}, v{}\n", tt.to_string(), dest, src);
-            }
-            LoadA(tt, dest, src) => {
-                return format!("\tv{} = load<{}> @{}\n", dest, tt.to_string(), src);
-            }
-            LoadR(tt, dest, src) => {
-                return format!("\tv{} = load<{}> v{}\n", dest, tt.to_string(), src);
-            }
-            Label(s) => {
-                return format!("\n\t%L_{}:\n", s);
-            }
-            Call(name, tt, arguments, ret) => {
-                let mut result = format!("\tv{} = call<{}> {}(", ret, tt.to_string(), name);
-                for i in 0..arguments.len() {
-                    result += &format!("v{}", arguments[i]);
-                    if i != arguments.len() - 1 {
-                        result += &format!(", ");
-                    }
-                }
-
-                return result + &format!(")\n");
-            }
-            Branch(ct, tt, src1, src2, name) => {
-                let mut result = format!("\tj{}", ct.to_string());
-
-                match *ct {
-                    CompareType::Always => {}
-                    CompareType::S | CompareType::NS => result += &format!("<{}> v{}", tt.to_string(), src1),
-                    _ => result += &format!("<{}> v{}, v{}", tt.to_string(), src1, src2),
-                }
-
-                return result + &format!(" %L_{}\n", name);
-            }
-            Unary(tt, tk, dest, src) => {
-                let mut result = format!("\tv{} = ", dest);
-                match tk {
-                    Operator::Minus => result += "neg",
-                    Operator::Plus => result += "plus",
-                    Operator::Complement => result += "comp",
-                    Operator::Not => result += "not",
-                    _ => panic!("Invalid binary operator {:#?}", tk),
-                }
-                result += &format!("<{}> v{}\n", tt.to_string(), src);
-                return result;
-            }
-            Binary(tk, tt, dest, src1, src2) => {
-                let mut result = format!("\tv{} = ", dest);
-
-                match tk {
-                    Operator::EqualCompare => result += "seq",
-                    Operator::DiffCompare => result += "sneq",
-                    Operator::LTCompare => result += "slt",
-                    Operator::GTCompare => result += "sgt",
-                    Operator::LECompare => result += "sle",
-                    Operator::GECompare => result += "sge",
-                    Operator::Minus => result += "sub",
-                    Operator::Plus => result += "add",
-                    Operator::Asterisk => result += "mul",
-                    Operator::Slash => result += "div",
-                    Operator::XorOp => result += "xor",
-                    Operator::AndOp => result += "and",
-                    Operator::OrOp => result += "or",
-                    Operator::Module => result += "rem",
-                    Operator::LShift => result += "sl",
-                    Operator::RShift => result += "sr",
-                    _ => panic!("Invalid binary operator {:#?}", tk),
-                }
-
-                result += &format!(" <{}> v{}, v{}\n", tt.to_string(), src1, src2);
-
-                return result;
-            }
-        }
-    }
-}
-
-impl CompareType {
-    fn from_token(t: &Token) -> CompareType {
-        match t.tk {
-            Tk::Operator(Operator::GECompare) => CompareType::GE,
-            Tk::Operator(Operator::GTCompare) => CompareType::GT,
-            Tk::Operator(Operator::LECompare) => CompareType::LE,
-            Tk::Operator(Operator::LTCompare) => CompareType::LT,
-            Tk::Operator(Operator::EqualCompare) => CompareType::EQ,
-            Tk::Operator(Operator::DiffCompare) => CompareType::NE,
-            _ => panic!("Cannot covert token {:?} into CompareType", t.tk),
-        }
-    }
-
-    fn to_string(&self) -> String {
-        match *self {
-            CompareType::Always => return "".to_string(),
-            CompareType::GT => return "gt".to_string(),
-            CompareType::GE => return "ge".to_string(),
-            CompareType::LT => return "lt".to_string(),
-            CompareType::LE => return "le".to_string(),
-            CompareType::S => return "s".to_string(),
-            CompareType::NS => return "ns".to_string(),
-            CompareType::EQ => return "eq".to_string(),
-            CompareType::NE => return "ne".to_string(),
-        }
-    }
-
-    fn opposite(&self) -> CompareType {
-        match *self {
-            CompareType::Always => CompareType::Always,
-            CompareType::GT => CompareType::LE,
-            CompareType::GE => CompareType::LT,
-            CompareType::LT => CompareType::GE,
-            CompareType::LE => CompareType::GT,
-            CompareType::S => CompareType::NS,
-            CompareType::NS => CompareType::S,
-            CompareType::EQ => CompareType::NE,
-            CompareType::NE => CompareType::EQ,
-        }
     }
 }
