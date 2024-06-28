@@ -586,7 +586,6 @@ impl Lirgen {
         if let AstNode::IfNode(expr, body, else_body) = &ast.node {
             let mut result = LirgenResult { ..Default::default() };
 
-            let if_next_label = self.get_label();
             let if_end_label = self.get_label();
 
             let if_else_label = if else_body.node != AstNode::NullNode {
@@ -640,7 +639,6 @@ impl Lirgen {
             self.to_invalidate_constant = vec![];
 
             let mut body_lin = self.linearize(body, get_address, break_dest, continue_dest);
-            result.ir_list.push(IrNode::Label(if_next_label));
             result.ir_list.append(&mut body_lin.ir_list);
 
             self.invalidate();

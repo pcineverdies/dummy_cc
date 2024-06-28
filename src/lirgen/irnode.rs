@@ -49,6 +49,36 @@ pub enum IrNode {
 use IrNode::*;
 
 impl IrNode {
+    pub fn get_dest(&self) -> u32 {
+        match &self {
+            Alloc(_, dest, ..) => return *dest,
+            MovC(_, dest, ..) => return *dest,
+            Cast(_, _, dest, ..) => return *dest,
+            Store(_, dest, ..) => return *dest,
+            LoadA(_, dest, ..) => return *dest,
+            LoadR(_, dest, ..) => return *dest,
+            Call(_, _, _, ret) => return *ret,
+            Unary(_, _, dest, ..) => return *dest,
+            Binary(_, _, dest, ..) => return *dest,
+            _ => return 0,
+        }
+    }
+
+    pub fn get_src(&self) -> Vec<u32> {
+        match &self {
+            Return(_, src) => return vec![*src],
+            Alloc(_, _, src, _, _, _) => return vec![*src],
+            Cast(_, _, _, src) => return vec![*src],
+            Store(_, _, src) => return vec![*src],
+            LoadR(_, _, src) => return vec![*src],
+            Call(_, _, arguments, _) => return arguments.clone(),
+            Branch(_, _, src1, src2, _) => return vec![*src1, *src2],
+            Unary(_, _, _, src) => return vec![*src],
+            Binary(_, _, _, src1, src2) => return vec![*src1, *src2],
+            _ => return vec![],
+        }
+    }
+
     /// IrNode::to_string
     ///
     /// Get a string out of an IrNode

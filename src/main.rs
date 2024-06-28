@@ -6,7 +6,7 @@ mod parser;
 use clap::Parser as ClapParser;
 use lexer::lexer_impl::Lexer;
 use lirgen::lirgen_impl::Lirgen;
-// use optimizer::optimizer_impl::Optimizer;
+use optimizer::optimizer_impl::Optimizer;
 use parser::parser_impl::Parser;
 
 #[derive(ClapParser, Debug)]
@@ -29,6 +29,7 @@ fn main() {
     if tokens.is_none() {
         return;
     }
+
     let mut p = Parser::new(tokens.unwrap(), args.file_name.clone());
     let ast_wrapped = p.parse();
 
@@ -37,7 +38,12 @@ fn main() {
     }
 
     let mut i = Lirgen::new(args.opt);
-    let ir = i.linearize_ast(&ast_wrapped.unwrap());
+    let mut ir = i.linearize_ast(&ast_wrapped.unwrap());
+
+    if args.opt > 1 {
+        let mut opt = Optimizer::new(args.opt);
+        ir = opt.optimize(ir);
+    }
+
     println!("{}", ir.to_string());
-    // let opt = Optimizer::new();
 }
