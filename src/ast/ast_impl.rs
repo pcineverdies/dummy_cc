@@ -281,6 +281,7 @@ impl AstNode {
     }
 }
 
+#[allow(dead_code)]
 impl AstNodeWrapper {
     /// AstNodeWrapper::get_indent
     ///

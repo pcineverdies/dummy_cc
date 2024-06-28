@@ -19,6 +19,7 @@ pub struct Lirgen {
     to_invalidate: bool,
     to_invalidate_variable: Vec<String>,
     to_invalidate_constant: Vec<u32>,
+    opt: u32,
 }
 
 use AstNode::*;
@@ -28,7 +29,8 @@ impl Lirgen {
     /// Lirgen::new
     ///
     /// Create a new empty Linear IR generator
-    pub fn new() -> Lirgen {
+    /// @in opt[u32]: required optimization level
+    pub fn new(opt: u32) -> Lirgen {
         return Lirgen {
             current_register: 0,
             current_label: 0,
@@ -40,6 +42,7 @@ impl Lirgen {
             to_invalidate_constant: vec![],
             is_global: false,
             to_invalidate: false,
+            opt,
         };
     }
 
@@ -85,6 +88,9 @@ impl Lirgen {
     /// @in s[&String]: name of the variable
     /// @return [Option<u32>]: None if the variable is not stored, otherwise the register having it
     fn get_variables(&self, s: &String) -> Option<u32> {
+        if self.opt == 0 {
+            return None;
+        }
         for elem in &self.variable_values {
             if *elem.0 == *s {
                 return Some(elem.1);
@@ -104,6 +110,9 @@ impl Lirgen {
     /// @in op[u32]: operator
     /// @return [Option<u32>]: None if the variable is not stored, otherwise the register having it
     fn get_computed_binary(&self, s1: u32, s2: u32, op: &Operator) -> Option<u32> {
+        if self.opt == 0 {
+            return None;
+        }
         for elem in &self.computed_binary {
             if elem.0 == *op && elem.2 == s1 && elem.3 == s2 {
                 return Some(elem.1);
@@ -124,6 +133,9 @@ impl Lirgen {
     /// @in c[u32]: value of the constant
     /// @return [Option<u32>]: None if the constant is not stored, otherwise the register having it
     fn get_constant(&self, c: u32) -> Option<u32> {
+        if self.opt == 0 {
+            return None;
+        }
         for elem in &self.constant_values {
             if elem.0 == c {
                 return Some(elem.1);
@@ -430,12 +442,13 @@ impl Lirgen {
 
             let mut found_compare = false;
             if let BinaryNode(tk, exp1, exp2) = &expr2.node {
-                if tk.tk == Tk::Operator(Operator::GECompare)
+                if (tk.tk == Tk::Operator(Operator::GECompare)
                     || tk.tk == Tk::Operator(Operator::GTCompare)
                     || tk.tk == Tk::Operator(Operator::LECompare)
                     || tk.tk == Tk::Operator(Operator::LTCompare)
                     || tk.tk == Tk::Operator(Operator::EqualCompare)
-                    || tk.tk == Tk::Operator(Operator::DiffCompare)
+                    || tk.tk == Tk::Operator(Operator::DiffCompare))
+                    && self.opt > 0
                 {
                     found_compare = true;
                     let mut expr1_lin = self.linearize(exp1, get_address, break_dest, continue_dest);
@@ -508,12 +521,13 @@ impl Lirgen {
 
             let mut found_compare = false;
             if let BinaryNode(tk, exp1, exp2) = &expr.node {
-                if tk.tk == Tk::Operator(Operator::GECompare)
+                if (tk.tk == Tk::Operator(Operator::GECompare)
                     || tk.tk == Tk::Operator(Operator::GTCompare)
                     || tk.tk == Tk::Operator(Operator::LECompare)
                     || tk.tk == Tk::Operator(Operator::LTCompare)
                     || tk.tk == Tk::Operator(Operator::EqualCompare)
-                    || tk.tk == Tk::Operator(Operator::DiffCompare)
+                    || tk.tk == Tk::Operator(Operator::DiffCompare))
+                    && self.opt > 0
                 {
                     found_compare = true;
                     let mut expr1_lin = self.linearize(exp1, get_address, break_dest, continue_dest);
@@ -583,12 +597,13 @@ impl Lirgen {
 
             let mut found_compare = false;
             if let BinaryNode(tk, exp1, exp2) = &expr.node {
-                if tk.tk == Tk::Operator(Operator::GECompare)
+                if (tk.tk == Tk::Operator(Operator::GECompare)
                     || tk.tk == Tk::Operator(Operator::GTCompare)
                     || tk.tk == Tk::Operator(Operator::LECompare)
                     || tk.tk == Tk::Operator(Operator::LTCompare)
                     || tk.tk == Tk::Operator(Operator::EqualCompare)
-                    || tk.tk == Tk::Operator(Operator::DiffCompare)
+                    || tk.tk == Tk::Operator(Operator::DiffCompare))
+                    && self.opt > 0
                 {
                     found_compare = true;
                     let mut expr1_lin = self.linearize(exp1, get_address, break_dest, continue_dest);
