@@ -44,7 +44,6 @@ impl Lirgen {
     }
 
     fn invalidate(&mut self) {
-        println!("{:?}", self.to_invalidate_variable);
         for elem in &self.to_invalidate_constant {
             for i in 0..self.constant_values.len() {
                 if elem == &self.constant_values[i].0 {
@@ -411,12 +410,6 @@ impl Lirgen {
     /// @return [LirgenResult]: result of the conversion
     fn linearize_for_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::ForNode(expr1, expr2, expr3, body) = &ast.node {
-            let old_to_invalidate = self.to_invalidate;
-            let old_to_invalidate_c = self.to_invalidate_constant.clone();
-            self.to_invalidate = true;
-            self.to_invalidate_variable = vec![];
-            self.variable_values.clear();
-
             let mut result = LirgenResult { ..Default::default() };
 
             let for_label = self.get_label();
@@ -428,6 +421,12 @@ impl Lirgen {
             let mut expr1_lin = self.linearize(expr1, get_address, break_dest, continue_dest);
             result.ir_list.append(&mut expr1_lin.ir_list);
             result.ir_list.push(IrNode::Label(for_start_label.clone()));
+
+            let old_to_invalidate = self.to_invalidate;
+            let old_to_invalidate_c = self.to_invalidate_constant.clone();
+            self.to_invalidate = true;
+            self.to_invalidate_variable = vec![];
+            self.variable_values.clear();
 
             let mut found_compare = false;
             if let BinaryNode(tk, exp1, exp2) = &expr2.node {
@@ -481,7 +480,7 @@ impl Lirgen {
             self.to_invalidate_constant = old_to_invalidate_c;
             return result;
         }
-        panic!("AstNode is not of type WhileNode");
+        panic!("AstNode is not of type ForNode");
     }
 
     /// Lirgen::linearize_while_node
@@ -571,13 +570,6 @@ impl Lirgen {
     /// @return [LirgenResult]: result of the conversion
     fn linearize_if_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::IfNode(expr, body, else_body) = &ast.node {
-            let old_to_invalidate = self.to_invalidate;
-            let old_to_invalidate_c = self.to_invalidate_constant.clone();
-            let old_to_invalidate_v = self.to_invalidate_variable.clone();
-            self.to_invalidate = true;
-            self.to_invalidate_variable = vec![];
-            self.to_invalidate_constant = vec![];
-
             let mut result = LirgenResult { ..Default::default() };
 
             let if_next_label = self.get_label();
@@ -625,24 +617,43 @@ impl Lirgen {
                 ));
             }
 
+            let old_to_invalidate = self.to_invalidate;
+            let old_to_invalidate_c = self.to_invalidate_constant.clone();
+            let old_to_invalidate_v = self.to_invalidate_variable.clone();
+            self.to_invalidate = true;
+            self.to_invalidate_variable = vec![];
+            self.to_invalidate_constant = vec![];
+
             let mut body_lin = self.linearize(body, get_address, break_dest, continue_dest);
             result.ir_list.push(IrNode::Label(if_next_label));
             result.ir_list.append(&mut body_lin.ir_list);
 
+            self.invalidate();
+            self.to_invalidate = old_to_invalidate;
+            self.to_invalidate_constant = old_to_invalidate_c;
+            self.to_invalidate_variable = old_to_invalidate_v;
+
             if else_body.node != AstNode::NullNode {
+                let old_to_invalidate = self.to_invalidate;
+                let old_to_invalidate_c = self.to_invalidate_constant.clone();
+                let old_to_invalidate_v = self.to_invalidate_variable.clone();
+                self.to_invalidate = true;
+                self.to_invalidate_variable = vec![];
+                self.to_invalidate_constant = vec![];
+
                 result
                     .ir_list
                     .push(IrNode::Branch(CompareType::Always, expr.type_ref.clone(), 0, 0, if_end_label));
                 result.ir_list.push(IrNode::Label(if_else_label));
                 let mut else_lin = self.linearize(else_body, get_address, break_dest, continue_dest);
                 result.ir_list.append(&mut else_lin.ir_list);
+
+                self.invalidate();
+                self.to_invalidate = old_to_invalidate;
+                self.to_invalidate_constant = old_to_invalidate_c;
+                self.to_invalidate_variable = old_to_invalidate_v;
             }
             result.ir_list.push(IrNode::Label(if_end_label));
-
-            self.invalidate();
-            self.to_invalidate = old_to_invalidate;
-            self.to_invalidate_constant = old_to_invalidate_c;
-            self.to_invalidate_variable = old_to_invalidate_v;
 
             return result;
         }
@@ -879,7 +890,7 @@ impl Lirgen {
                             result.result_register = load_register;
                         }
                     }
-                    if get_address {
+                    if get_address || ast.type_ref.pointer > 0 {
                         return result;
                     }
                     match self.get_variables(&id) {
@@ -953,12 +964,21 @@ impl Lirgen {
 
                 match &exp1.node {
                     AstNode::PrimaryNode(tk) => {
+                        let id = Lirgen::get_identifier(tk);
+                        let mut found = false;
                         for i in 0..self.variable_values.len() {
-                            if self.variable_values[i].0 == Lirgen::get_identifier(tk) {
+                            if self.variable_values[i].0 == id {
                                 self.variable_values[i].1 = exp2_lin.result_register;
-                                self.to_invalidate_variable.push(self.variable_values[i].0.clone());
+                                found = true;
+                                break;
                             }
                         }
+
+                        if !found {
+                            self.add_variable(&id.clone(), exp2_lin.result_register);
+                        }
+
+                        self.to_invalidate_variable.push(id.clone());
                     }
                     _ => self.clear_variable_values(),
                 }
