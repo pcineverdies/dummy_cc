@@ -486,15 +486,24 @@ impl Parser {
             return self.parser_error(TokenError("{".to_string()));
         }
         let token_l = self.get_current_token(true);
+        let mut found_jump = false;
         // When entering a compound statement, a new scope is added
         self.symbol_table.add_scope();
         while self.get_current() != Tk::Bracket(RCurly) {
             // Match a statement as long as possible
             match self.statement(in_loop, &return_type) {
                 Match(node) => {
+                    if found_jump {
+                        self.parser_warning(NodeError(node.clone(), "Statement cannot be reached".to_string()));
+                    }
                     // Add to the list of node if different from null (empty semicolon)
-                    if node.node != AstNode::NullNode {
-                        result.push(node);
+                    if node.node != AstNode::NullNode && !found_jump {
+                        result.push(node.clone());
+                        // If the statement is of type JumpNode, the code which follow in the same
+                        // compound statement cannot be reached
+                        if let JumpNode(..) = node.node {
+                            found_jump = true;
+                        }
                     }
                 }
                 // In case of error, we skip the tokens until a new semicolon or a curly bracket
@@ -2061,6 +2070,55 @@ impl Parser {
             }
         }
         return Fail;
+    }
+
+    /// Parser::parser_warning
+    ///
+    /// Generate a warning from the parser
+    ///
+    /// @in error [ParserError]: type of error to handle
+    fn parser_warning(&mut self, error: ParserError) {
+        let line_number = self.token_list[self.current_position].line_number;
+        let first_character = self.token_list[self.current_position].first_character;
+        let file_lines = self.read_lines(&self.file_name);
+
+        eprint!("\x1b[34m{}:{}:{}: \x1b[0m", self.file_name, line_number, first_character);
+
+        match error {
+            NodeError(node, string) => {
+                eprintln!("\x1b[33mwarning parser: \x1b[0m{}", string);
+                println!("");
+                for line_number in node.source_ref.init_line..=node.source_ref.last_line {
+                    let line = &file_lines[line_number as usize - 1];
+                    eprint!("{}\t| {}\n\t| ", line_number, line);
+                    for i in 0..line.len() {
+                        if node.source_ref.init_line == node.source_ref.last_line {
+                            if i >= node.source_ref.init_char as usize - 1 && i <= node.source_ref.last_char as usize - 1 {
+                                eprint!("\x1b[33m^\x1b[0m");
+                            } else {
+                                eprint!(" ");
+                            }
+                        } else if line_number == node.source_ref.init_line {
+                            if i < node.source_ref.init_char as usize - 1 {
+                                eprint!(" ");
+                            } else {
+                                eprint!("\x1b[33m^\x1b[0m");
+                            }
+                        } else if line_number == node.source_ref.last_line {
+                            if i <= node.source_ref.last_char as usize - 1 {
+                                eprint!("\x1b[33m^\x1b[0m");
+                            } else {
+                                eprint!(" ");
+                            }
+                        } else {
+                            eprint!("\x1b[33m^\x1b[0m");
+                        }
+                    }
+                    eprintln!("");
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Parser::read_lines
