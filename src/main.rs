@@ -4,10 +4,10 @@ mod lirgen;
 mod optimizer;
 mod parser;
 use clap::Parser as ClapParser;
-use lexer::lexer_impl::Lexer;
-use lirgen::lirgen_impl::Lirgen;
-use optimizer::optimizer_impl::Optimizer;
-use parser::parser_impl::Parser;
+use lexer::lexer::Lexer;
+use lirgen::lirgen::Lirgen;
+use optimizer::optimizer::Optimizer;
+use parser::parser::Parser;
 
 #[derive(ClapParser, Debug)]
 #[command(version, about, long_about = None)]

@@ -1,5 +1,5 @@
-use crate::ast::ast_impl::TypeWrapper;
-use crate::lexer::lexer_impl::{Operator, Tk, Token};
+use crate::ast::type_wrapper::TypeWrapper;
+use crate::lexer::token::{Operator, Tk, Token};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CompareType {

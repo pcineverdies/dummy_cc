@@ -1,5 +1,6 @@
-use crate::ast::ast_impl::{AstNode, AstNodeWrapper, SourceReference, TypeNative, TypeWrapper};
-use crate::lexer::lexer_impl::{Bracket, Keyword, Operator, Tk, Token};
+use crate::ast::ast_node::{AstNode, AstNodeWrapper, SourceReference};
+use crate::ast::type_wrapper::{TypeNative, TypeWrapper};
+use crate::lexer::token::{Bracket, Keyword, Operator, Tk, Token};
 use crate::parser::symbol_table::{Declaration, SymbolTable};
 use std::string::String;
 use std::{fs::read_to_string, process::exit};

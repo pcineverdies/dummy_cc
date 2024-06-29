@@ -1,5 +1,6 @@
-use crate::ast::ast_impl::{AstNode, AstNodeWrapper, TypeWrapper};
-use crate::lexer::lexer_impl::{Keyword, Operator, Tk, Token};
+use crate::ast::ast_node::{AstNode, AstNodeWrapper};
+use crate::ast::type_wrapper::TypeWrapper;
+use crate::lexer::token::{Keyword, Operator, Tk, Token};
 use crate::lirgen::irnode::{CompareType, IrNode};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
