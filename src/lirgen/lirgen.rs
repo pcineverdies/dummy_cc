@@ -2,24 +2,48 @@ use crate::ast::ast_node::{AstNode, AstNodeWrapper};
 use crate::ast::type_wrapper::TypeWrapper;
 use crate::lexer::token::{Keyword, Operator, Tk, Token};
 use crate::lirgen::irnode::{CompareType, IrNode};
+use std::collections::HashMap;
 
+/// struct LirgenResult
+///
+/// Stores the result of a linearization of an ast node. In particular, as an ast node is
+/// linearized, we obtain a list of IrNode corresponding to its functionalities and a result
+/// register which will be used for computation by further nodes
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct LirgenResult {
-    pub ir_list: Vec<IrNode>,
-    pub result_register: u32,
+    pub ir_list: Vec<IrNode>, // List of produced nodes
+    pub result_register: u32, // Register storing the result
 }
 
+// strcut Lirgen
+//
+// Stores the necessary elements to perform the linearization of the ast, at different levels of
+// optimizations
 pub struct Lirgen {
+    // Keeps track of the next register which can be used (SSA format)
     current_register: u32,
+    // Keeps track of the next label which can be used
     current_label: u32,
-    variable_pointers: Vec<(String, u32)>,
-    variable_values: Vec<(String, u32)>,
-    constant_values: Vec<(u32, u32)>,
+    // For each variable encountered during the initialization, it keeps track of the register
+    // containing its pointer
+    variable_pointers: HashMap<String, u32>,
+    // For each variable encountered during the initialization, it keeps track of the register
+    // containing its value. If the variable is updated, this register must be updated as well
+    variable_values: HashMap<String, u32>,
+    // For each constant encountered, it keeps track of the register containing its value
+    constant_values: HashMap<u32, u32>,
+    // For each binary operation encountered between two registers, it keeps track of the register
+    // maintaining the result
     computed_binary: Vec<(Operator, u32, u32, u32)>,
+    // Whether we are currently in the global scope or not
     is_global: bool,
+    // If we encounter branches, the last information stored in the arrays `variable_pointers` and
+    // `variable_values` are to be invalidated at the end of them. To pointer are never to be
+    // invalidated
     to_invalidate: bool,
+    // Which variables to invalidate
     to_invalidate_variable: Vec<String>,
-    to_invalidate_constant: Vec<u32>,
+    // Optimization level to use
     opt: u32,
 }
 
@@ -35,36 +59,15 @@ impl Lirgen {
         return Lirgen {
             current_register: 0,
             current_label: 0,
-            variable_pointers: vec![],
-            variable_values: vec![],
-            constant_values: vec![],
+            variable_pointers: HashMap::new(),
+            variable_values: HashMap::new(),
+            constant_values: HashMap::new(),
             computed_binary: vec![],
             to_invalidate_variable: vec![],
-            to_invalidate_constant: vec![],
             is_global: false,
             to_invalidate: false,
             opt,
         };
-    }
-
-    fn invalidate(&mut self) {
-        for elem in &self.to_invalidate_constant {
-            for i in 0..self.constant_values.len() {
-                if elem == &self.constant_values[i].0 {
-                    self.constant_values.remove(i);
-                    break;
-                }
-            }
-        }
-
-        for elem in &self.to_invalidate_variable {
-            for i in 0..self.variable_values.len() {
-                if elem == &self.variable_values[i].0 {
-                    self.variable_values.remove(i);
-                    break;
-                }
-            }
-        }
     }
 
     /// Lirgen::get_pointer_variable
@@ -74,12 +77,11 @@ impl Lirgen {
     /// @in s[&String]: name of the pointed variable
     /// @return [Option<u32>]: None if the pointer is not stored, otherwise the register having it
     fn get_pointer_variable(&self, s: &String) -> Option<u32> {
-        for elem in &self.variable_pointers {
-            if *elem.0 == *s {
-                return Some(elem.1);
-            }
+        let result = self.variable_pointers.get(s);
+        if result.is_some() {
+            return Some(*result.unwrap());
         }
-        return None;
+        None
     }
 
     /// Lirgen::get_variables
@@ -89,15 +91,11 @@ impl Lirgen {
     /// @in s[&String]: name of the variable
     /// @return [Option<u32>]: None if the variable is not stored, otherwise the register having it
     fn get_variables(&self, s: &String) -> Option<u32> {
-        if self.opt == 0 {
-            return None;
+        let result = self.variable_values.get(s);
+        if result.is_some() {
+            return Some(*result.unwrap());
         }
-        for elem in &self.variable_values {
-            if *elem.0 == *s {
-                return Some(elem.1);
-            }
-        }
-        return None;
+        None
     }
 
     /// @in s[(Operator, u32, u32, u32)]: computed binary in the format (op, dest, src1, src2)
@@ -137,12 +135,11 @@ impl Lirgen {
         if self.opt == 0 {
             return None;
         }
-        for elem in &self.constant_values {
-            if elem.0 == c {
-                return Some(elem.1);
-            }
+        let result = self.constant_values.get(&c);
+        if result.is_some() {
+            return Some(*result.unwrap());
         }
-        return None;
+        None
     }
 
     /// Lirgen::add_constant
@@ -152,10 +149,7 @@ impl Lirgen {
     /// @in r[u32]: register in which the constant is stored
     /// @in v[u32]: value of the constant
     fn add_constant(&mut self, r: u32, v: u32) {
-        if self.to_invalidate {
-            self.to_invalidate_constant.push(v);
-        }
-        self.constant_values.push((v, r));
+        self.constant_values.insert(v, r);
     }
 
     /// Lirgen::add_variable
@@ -168,7 +162,7 @@ impl Lirgen {
         if self.to_invalidate {
             self.to_invalidate_variable.push(s.clone());
         }
-        self.variable_values.push((s.clone(), r));
+        self.variable_values.insert(s.clone(), r);
     }
 
     /// Lirgen::clear_variable_values
@@ -185,7 +179,7 @@ impl Lirgen {
     /// @in s[&String]: name of the variable pointed by the pointer
     /// @in r[u32]: register in which the pointer is stored
     fn add_pointer_variable(&mut self, s: &String, r: u32) {
-        self.variable_pointers.push((s.clone(), r));
+        self.variable_pointers.insert(s.clone(), r);
     }
 
     /// Lirgen::add_computed_binary
@@ -239,6 +233,40 @@ impl Lirgen {
         IrNode::Program(self.linearize(ast, false, 0, 0).ir_list)
     }
 
+    /// Lirgen::start_invalidate
+    ///
+    /// Function to call before an invalidation, which happens before a jump.
+    /// As the following block might or might not be executed, the new delcaration should not be
+    /// kept afterwards. However, some of the old declarations are to be stored at the end of the
+    /// jump.
+    ///
+    /// @return [(bool, HashMap<u32, u32>, Vec<String>)]: old values of self.to_invalidate,
+    /// self.old_constant_values and self.old_to_invalidate_variable
+    fn start_invalidate(&mut self) -> (bool, HashMap<u32, u32>, Vec<String>) {
+        let old_to_invalidate = self.to_invalidate;
+        let old_constant_values = self.constant_values.clone();
+        let old_to_invalidate_variable = self.to_invalidate_variable.clone();
+        self.to_invalidate = true;
+        self.to_invalidate_variable = vec![];
+        (old_to_invalidate, old_constant_values, old_to_invalidate_variable)
+    }
+
+    /// Lirgen::end_invalidate
+    ///
+    /// Function to call at the end of an invalidation, which happens at the end of a jump block
+    ///
+    /// @in b[bool]: self.to_invalidate to restore
+    /// @in hc[HashMap<u32, u32>]: self.constant_values to restore
+    /// @in hv[HashMap<String, u32>]: self.to_invalidate_variable to restore
+    fn end_invalidate(&mut self, b: bool, hc: HashMap<u32, u32>, hv: Vec<String>) {
+        for elem in &self.to_invalidate_variable {
+            self.variable_values.remove(elem);
+        }
+        self.to_invalidate = b;
+        self.constant_values = hc;
+        self.to_invalidate_variable = hv;
+    }
+
     /// Lirgen::linearize
     ///
     /// Linearize an ast node
@@ -267,6 +295,8 @@ impl Lirgen {
             IfNode(..) => return self.linearize_if_node(ast, get_address, break_dest, continue_dest),
             WhileNode(..) => return self.linearize_while_node(ast, get_address, break_dest, continue_dest),
             ForNode(..) => return self.linearize_for_node(ast, get_address, break_dest, continue_dest),
+            // Some nodes cannot be linearized, and in a correct ast construction they should never
+            // be provided to this function
             TypeNode(..) => panic!("TypeNode cannot be linearized!"),
             NullNode => panic!("NullNode cannot be linearized!"),
             ParameterNode(..) => panic!("ParameterNode cannot be linearized!"),
@@ -286,7 +316,12 @@ impl Lirgen {
     fn linearize_selector_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::SelectorNode(left, right) = &ast.node {
             let mut result = LirgenResult { ..Default::default() };
-            let mut l_lin = self.linearize(&left, true, break_dest, continue_dest);
+
+            // Get the address of the left side. Since the left side is always a pointer (due to
+            // ast construction), we are interested in the value pointed to it (its value)
+            let mut l_lin = self.linearize(&left, false, break_dest, continue_dest);
+
+            // Get the right size, corresponding to the offset to use
             let mut r_lin = self.linearize(&right, false, break_dest, continue_dest);
             let mut tt = ast.type_ref.clone();
             tt.pointer += 1;
@@ -296,27 +331,46 @@ impl Lirgen {
 
             let size = ast.type_ref.get_size();
 
-            let constant_register;
-            match self.get_constant(size) {
-                Some(l) => {
-                    constant_register = l;
+            let offset_register;
+            if size != 1 {
+                let constant_register;
+                match self.get_constant(size) {
+                    Some(l) => {
+                        constant_register = l;
+                    }
+                    None => {
+                        let result_register = self.get_register();
+                        let store_constant_node = MovC(tt.clone(), result_register, size);
+                        result.ir_list.push(store_constant_node);
+                        constant_register = result_register;
+                        self.add_constant(result_register, size);
+                    }
                 }
-                None => {
-                    let result_register = self.get_register();
-                    let store_constant_node = MovC(tt.clone(), result_register, size);
-                    result.ir_list.push(store_constant_node);
-                    constant_register = result_register;
-                    self.add_constant(result_register, size);
+
+                match self.get_computed_binary(r_lin.result_register, constant_register, &Operator::LShift) {
+                    Some(r) => offset_register = r,
+                    _ => {
+                        offset_register = self.get_register();
+                        let new_op = Binary(Operator::LShift, tt.clone(), offset_register, r_lin.result_register, constant_register);
+                        self.add_computed_binary((Operator::LShift, offset_register, r_lin.result_register, constant_register));
+                        result.ir_list.push(new_op);
+                    }
+                }
+            } else {
+                offset_register = r_lin.result_register;
+            }
+
+            let sum_register;
+            match self.get_computed_binary(l_lin.result_register, offset_register, &Operator::Plus) {
+                Some(r) => sum_register = r,
+                _ => {
+                    sum_register = self.get_register();
+                    let new_op = Binary(Operator::Plus, tt.clone(), sum_register, l_lin.result_register, offset_register);
+                    self.add_computed_binary((Operator::LShift, sum_register, l_lin.result_register, offset_register));
+                    result.ir_list.push(new_op);
                 }
             }
 
-            let offset_register = self.get_register();
-            let new_op = Binary(Operator::LShift, tt.clone(), offset_register, r_lin.result_register, constant_register);
-            result.ir_list.push(new_op);
-
-            let sum_register = self.get_register();
-            let new_op = Binary(Operator::Plus, tt.clone(), sum_register, l_lin.result_register, offset_register);
-            result.ir_list.push(new_op);
             result.result_register = sum_register;
 
             if !get_address {
@@ -356,14 +410,24 @@ impl Lirgen {
                         result.result_register = result_register;
                         return result;
                     } else if *op == Operator::Asterisk {
-                        let mut exp_lin = self.linearize(&expr, true, break_dest, continue_dest);
-                        result.ir_list.append(&mut exp_lin.ir_list);
-                        let result_register = self.get_register();
-                        let mut tt = ast.type_ref.clone();
-                        tt.pointer += 1;
-                        let load_value = LoadR(tt, result_register, exp_lin.result_register);
-                        result.ir_list.push(load_value);
-                        result.result_register = result_register;
+                        let mut found_primary = false;
+                        if let AstNode::PrimaryNode(tk) = &expr.node {
+                            let id = Lirgen::get_identifier(tk);
+                            if let Some(l) = self.get_variables(&id) {
+                                result.result_register = l;
+                                found_primary = true;
+                            }
+                        }
+                        if !found_primary {
+                            let mut exp_lin = self.linearize(&expr, true, break_dest, continue_dest);
+                            result.ir_list.append(&mut exp_lin.ir_list);
+                            let result_register = self.get_register();
+                            let mut tt = ast.type_ref.clone();
+                            tt.pointer += 1;
+                            let load_value = LoadR(tt, result_register, exp_lin.result_register);
+                            result.ir_list.push(load_value);
+                            result.result_register = result_register;
+                        }
                         if !get_address {
                             let result_register = self.get_register();
                             let load_value = LoadR(ast.type_ref.clone(), result_register, result.result_register);
@@ -398,11 +462,19 @@ impl Lirgen {
             let mut result: LirgenResult = Default::default();
             let mut expression_lin = self.linearize(&expression, get_address, break_dest, continue_dest);
             let init_register = expression_lin.result_register;
-            let result_register = self.get_register();
-            let store_node = Alloc(tt.type_ref.clone(), result_register, 0, self.is_global, init_register, true);
+            let result_register_v = self.get_register();
+            let store_node = Alloc(tt.type_ref.clone(), result_register_v, 0, self.is_global, init_register, true);
 
             result.ir_list.append(&mut expression_lin.ir_list);
             result.ir_list.push(store_node);
+
+            let size = tt.type_ref.get_size();
+            let mut tt = tt.type_ref.clone();
+            let result_register = self.get_register();
+            tt.pointer += 1;
+            let store_node = Alloc(tt, result_register, result_register_v, self.is_global, size, false);
+            result.ir_list.push(store_node);
+
             result.result_register = result_register;
 
             self.add_pointer_variable(&Lirgen::get_identifier(name), result_register);
@@ -435,29 +507,20 @@ impl Lirgen {
             result.ir_list.append(&mut expr1_lin.ir_list);
             result.ir_list.push(IrNode::Label(for_start_label.clone()));
 
-            let old_to_invalidate = self.to_invalidate;
-            let old_to_invalidate_c = self.to_invalidate_constant.clone();
-            self.to_invalidate = true;
-            self.to_invalidate_variable = vec![];
-            self.variable_values.clear();
+            let (old_to_invalidate, old_constant_values, old_to_invalidate_variable) = self.start_invalidate();
+            self.clear_variable_values();
 
             let mut found_compare = false;
             if let BinaryNode(tk, exp1, exp2) = &expr2.node {
-                if (tk.tk == Tk::Operator(Operator::GECompare)
-                    || tk.tk == Tk::Operator(Operator::GTCompare)
-                    || tk.tk == Tk::Operator(Operator::LECompare)
-                    || tk.tk == Tk::Operator(Operator::LTCompare)
-                    || tk.tk == Tk::Operator(Operator::EqualCompare)
-                    || tk.tk == Tk::Operator(Operator::DiffCompare))
-                    && self.opt > 0
-                {
+                let compare_type = CompareType::from_token(&tk);
+                if compare_type.is_some() && self.opt > 0 {
                     found_compare = true;
                     let mut expr1_lin = self.linearize(exp1, get_address, break_dest, continue_dest);
                     let mut expr2_lin = self.linearize(exp2, get_address, break_dest, continue_dest);
                     result.ir_list.append(&mut expr1_lin.ir_list);
                     result.ir_list.append(&mut expr2_lin.ir_list);
                     result.ir_list.push(IrNode::Branch(
-                        CompareType::from_token(&tk).opposite(),
+                        compare_type.unwrap().opposite(),
                         exp1.type_ref.clone(),
                         expr1_lin.result_register,
                         expr2_lin.result_register,
@@ -489,9 +552,7 @@ impl Lirgen {
                 .push(IrNode::Branch(CompareType::Always, ast.type_ref.clone(), 0, 0, for_start_label));
             result.ir_list.push(IrNode::Label(for_end_label.clone()));
 
-            self.invalidate();
-            self.to_invalidate = old_to_invalidate;
-            self.to_invalidate_constant = old_to_invalidate_c;
+            self.end_invalidate(old_to_invalidate, old_constant_values, old_to_invalidate_variable);
             return result;
         }
         panic!("AstNode is not of type ForNode");
@@ -509,11 +570,8 @@ impl Lirgen {
     /// @return [LirgenResult]: result of the conversion
     fn linearize_while_node(&mut self, ast: &AstNodeWrapper, get_address: bool, break_dest: u32, continue_dest: u32) -> LirgenResult {
         if let AstNode::WhileNode(expr, body) = &ast.node {
-            let old_to_invalidate = self.to_invalidate;
-            let old_to_invalidate_c = self.to_invalidate_constant.clone();
-            self.to_invalidate = true;
-            self.to_invalidate_constant = vec![];
-            self.variable_values.clear();
+            let (old_to_invalidate, old_constant_values, old_to_invalidate_variable) = self.start_invalidate();
+            self.clear_variable_values();
 
             let mut result = LirgenResult { ..Default::default() };
             let while_label = self.get_label();
@@ -522,25 +580,19 @@ impl Lirgen {
 
             let mut found_compare = false;
             if let BinaryNode(tk, exp1, exp2) = &expr.node {
-                if (tk.tk == Tk::Operator(Operator::GECompare)
-                    || tk.tk == Tk::Operator(Operator::GTCompare)
-                    || tk.tk == Tk::Operator(Operator::LECompare)
-                    || tk.tk == Tk::Operator(Operator::LTCompare)
-                    || tk.tk == Tk::Operator(Operator::EqualCompare)
-                    || tk.tk == Tk::Operator(Operator::DiffCompare))
-                    && self.opt > 0
-                {
+                let compare_type = CompareType::from_token(&tk);
+                if compare_type.is_some() && self.opt > 0 {
                     found_compare = true;
                     let mut expr1_lin = self.linearize(exp1, get_address, break_dest, continue_dest);
                     let mut expr2_lin = self.linearize(exp2, get_address, break_dest, continue_dest);
                     result.ir_list.append(&mut expr1_lin.ir_list);
                     result.ir_list.append(&mut expr2_lin.ir_list);
                     result.ir_list.push(IrNode::Branch(
-                        CompareType::from_token(&tk).opposite(),
+                        compare_type.unwrap().opposite(),
                         exp1.type_ref.clone(),
                         expr1_lin.result_register,
                         expr2_lin.result_register,
-                        while_end_label,
+                        while_label,
                     ));
                 }
             }
@@ -564,9 +616,7 @@ impl Lirgen {
                 .push(IrNode::Branch(CompareType::Always, ast.type_ref.clone(), 0, 0, while_label));
             result.ir_list.push(IrNode::Label(while_end_label));
 
-            self.invalidate();
-            self.to_invalidate = old_to_invalidate;
-            self.to_invalidate_constant = old_to_invalidate_c;
+            self.end_invalidate(old_to_invalidate, old_constant_values, old_to_invalidate_variable);
 
             return result;
         }
@@ -597,21 +647,15 @@ impl Lirgen {
 
             let mut found_compare = false;
             if let BinaryNode(tk, exp1, exp2) = &expr.node {
-                if (tk.tk == Tk::Operator(Operator::GECompare)
-                    || tk.tk == Tk::Operator(Operator::GTCompare)
-                    || tk.tk == Tk::Operator(Operator::LECompare)
-                    || tk.tk == Tk::Operator(Operator::LTCompare)
-                    || tk.tk == Tk::Operator(Operator::EqualCompare)
-                    || tk.tk == Tk::Operator(Operator::DiffCompare))
-                    && self.opt > 0
-                {
+                let compare_type = CompareType::from_token(&tk);
+                if compare_type.is_some() && self.opt > 0 {
                     found_compare = true;
                     let mut expr1_lin = self.linearize(exp1, get_address, break_dest, continue_dest);
                     let mut expr2_lin = self.linearize(exp2, get_address, break_dest, continue_dest);
                     result.ir_list.append(&mut expr1_lin.ir_list);
                     result.ir_list.append(&mut expr2_lin.ir_list);
                     result.ir_list.push(IrNode::Branch(
-                        CompareType::from_token(&tk).opposite(),
+                        compare_type.unwrap().opposite(),
                         exp1.type_ref.clone(),
                         expr1_lin.result_register,
                         expr2_lin.result_register,
@@ -632,28 +676,15 @@ impl Lirgen {
                 ));
             }
 
-            let old_to_invalidate = self.to_invalidate;
-            let old_to_invalidate_c = self.to_invalidate_constant.clone();
-            let old_to_invalidate_v = self.to_invalidate_variable.clone();
-            self.to_invalidate = true;
-            self.to_invalidate_variable = vec![];
-            self.to_invalidate_constant = vec![];
+            let (old_to_invalidate, old_constant_values, old_to_invalidate_variable) = self.start_invalidate();
 
             let mut body_lin = self.linearize(body, get_address, break_dest, continue_dest);
             result.ir_list.append(&mut body_lin.ir_list);
 
-            self.invalidate();
-            self.to_invalidate = old_to_invalidate;
-            self.to_invalidate_constant = old_to_invalidate_c;
-            self.to_invalidate_variable = old_to_invalidate_v;
+            self.end_invalidate(old_to_invalidate, old_constant_values, old_to_invalidate_variable);
 
             if else_body.node != AstNode::NullNode {
-                let old_to_invalidate = self.to_invalidate;
-                let old_to_invalidate_c = self.to_invalidate_constant.clone();
-                let old_to_invalidate_v = self.to_invalidate_variable.clone();
-                self.to_invalidate = true;
-                self.to_invalidate_variable = vec![];
-                self.to_invalidate_constant = vec![];
+                let (old_to_invalidate, old_constant_values, old_to_invalidate_variable) = self.start_invalidate();
 
                 result
                     .ir_list
@@ -662,10 +693,7 @@ impl Lirgen {
                 let mut else_lin = self.linearize(else_body, get_address, break_dest, continue_dest);
                 result.ir_list.append(&mut else_lin.ir_list);
 
-                self.invalidate();
-                self.to_invalidate = old_to_invalidate;
-                self.to_invalidate_constant = old_to_invalidate_c;
-                self.to_invalidate_variable = old_to_invalidate_v;
+                self.end_invalidate(old_to_invalidate, old_constant_values, old_to_invalidate_variable);
             }
             result.ir_list.push(IrNode::Label(if_end_label));
 
@@ -841,7 +869,7 @@ impl Lirgen {
         panic!("AstNode is not of type DeclarationList");
     }
 
-    /// Lirgen::linearize_var_decl_node
+    /// Lirgen::linearize_var_recl_node
     ///
     /// Linearize a node of type VarDeclNode
     ///
@@ -904,7 +932,7 @@ impl Lirgen {
                             result.result_register = load_register;
                         }
                     }
-                    if get_address || ast.type_ref.pointer > 0 {
+                    if get_address {
                         return result;
                     }
                     match self.get_variables(&id) {
@@ -979,20 +1007,8 @@ impl Lirgen {
                 match &exp1.node {
                     AstNode::PrimaryNode(tk) => {
                         let id = Lirgen::get_identifier(tk);
-                        let mut found = false;
-                        for i in 0..self.variable_values.len() {
-                            if self.variable_values[i].0 == id {
-                                self.variable_values[i].1 = exp2_lin.result_register;
-                                found = true;
-                                break;
-                            }
-                        }
-
-                        if !found {
-                            self.add_variable(&id.clone(), exp2_lin.result_register);
-                        }
-
                         self.to_invalidate_variable.push(id.clone());
+                        self.variable_values.insert(id, exp2_lin.result_register);
                     }
                     _ => self.clear_variable_values(),
                 }

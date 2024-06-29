@@ -1,19 +1,27 @@
 use crate::ast::type_wrapper::TypeWrapper;
 use crate::lexer::token::{Operator, Tk, Token};
 
+/// enum CompareType
+///
+/// Enum associated to the different conditions for a branch
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CompareType {
-    Always,
-    GT,
-    GE,
-    LT,
-    LE,
-    EQ,
-    NE,
-    S,
-    NS,
+    Always, // Branch is always taken
+    GT,     // Branch is taken iff src1 > src2
+    GE,     // Branch is taken iff src1 >= src2
+    LT,     // Branch is taken iff src1 < src2
+    LE,     // Branch is taken iff src1 <= src2
+    EQ,     // Branch is taken iff src1 == src2
+    NE,     // Branch is taken iff src1 != src2
+    S,      // Branch is taken iff src1 != 0
+    NS,     // Branch is taken iff src1 == 0
 }
 
+/// enum IrNode
+///
+/// Enum associated to the different nodes avaialble in the Intermediate Representation adopted in
+/// the compiler. The intermediate representation is a linearized form of the ast so that
+/// optimizations are simple to implment together with an efficinet back-end system.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IrNode {
     // List of nodes
@@ -46,9 +54,14 @@ pub enum IrNode {
     // operator, type, destination, source
     Unary(TypeWrapper, Operator, u32, u32),
 }
+
 use IrNode::*;
 
 impl IrNode {
+    /// IrNode::get_dest
+    ///
+    /// Given an IrNode, get its destination register, 0 if the node has no destination register.
+    /// @return [u32]: destination register
     pub fn get_dest(&self) -> u32 {
         match &self {
             Alloc(_, dest, ..) => return *dest,
@@ -64,6 +77,11 @@ impl IrNode {
         }
     }
 
+    /// IrNode::get_src
+    ///
+    /// Given an IrNode, get its source registers (might be more than one); an empty vector is
+    /// returned if the node has no sources
+    /// @return [Vec<u32>]: source registers
     pub fn get_src(&self) -> Vec<u32> {
         match &self {
             Return(_, src) => return vec![*src],
@@ -86,6 +104,7 @@ impl IrNode {
     /// @return [String]: result of the conversion
     pub fn to_string(&self) -> String {
         match &self {
+            // In case of a program, print all the functions one after the other
             Program(list) => {
                 let mut result = "".to_string();
                 for l in list {
@@ -93,6 +112,8 @@ impl IrNode {
                 }
                 return result;
             }
+            // For a function, print its declaration (name, return type and arguments) together
+            // wiht all its statements
             FunctionDeclaration(name, tt, arguments, nodes) => {
                 let mut result = format!("\nfunction<{}> {} (", tt.to_string(), name);
                 for i in 0..arguments.len() {
@@ -110,6 +131,8 @@ impl IrNode {
                 return result + &format!("}}\n");
             }
             Return(tt, src) => {
+                // If the source register of a return statement is zero, then the statement is
+                // associated to a void function
                 if *src != 0 {
                     return format!("\treturn<{}> v{}\n", tt.to_string(), src);
                 }
@@ -117,14 +140,15 @@ impl IrNode {
             }
             Alloc(tt, dest, src, is_global, size, from_reg) => {
                 let mut result = format!("\tv{} = alloc<{}> ", dest, tt.to_string());
+                // No initizialization register
                 if *src != 0 {
                     result += &format!("v{} ", src);
                 }
+                // Size depends on the value of a register
                 if *from_reg {
                     result += &format!("[v{}] ", size);
-                } else {
-                    result += &format!("[{}] ", size);
                 }
+                // Global declaration
                 if *is_global {
                     result += &format!(" !global ");
                 }
@@ -164,8 +188,11 @@ impl IrNode {
                 let mut result = format!("\tj{}", ct.to_string());
 
                 match *ct {
+                    // No other arguments
                     CompareType::Always => {}
+                    // One source register
                     CompareType::S | CompareType::NS => result += &format!("<{}> v{}", tt.to_string(), src1),
+                    // Two source registers
                     _ => result += &format!("<{}> v{}, v{}", tt.to_string(), src1, src2),
                 }
 
@@ -217,17 +244,17 @@ impl IrNode {
 impl CompareType {
     /// CompareType::from_token
     ///
-    /// @in t [&Token]: token to use
+    /// @in t [&Token]: token to use to extract the comparison type
     /// @result [CompareType]: Equivalent compare type
-    pub fn from_token(t: &Token) -> CompareType {
+    pub fn from_token(t: &Token) -> Option<CompareType> {
         match t.tk {
-            Tk::Operator(Operator::GECompare) => CompareType::GE,
-            Tk::Operator(Operator::GTCompare) => CompareType::GT,
-            Tk::Operator(Operator::LECompare) => CompareType::LE,
-            Tk::Operator(Operator::LTCompare) => CompareType::LT,
-            Tk::Operator(Operator::EqualCompare) => CompareType::EQ,
-            Tk::Operator(Operator::DiffCompare) => CompareType::NE,
-            _ => panic!("Cannot covert token {:?} into CompareType", t.tk),
+            Tk::Operator(Operator::GECompare) => Some(CompareType::GE),
+            Tk::Operator(Operator::GTCompare) => Some(CompareType::GT),
+            Tk::Operator(Operator::LECompare) => Some(CompareType::LE),
+            Tk::Operator(Operator::LTCompare) => Some(CompareType::LT),
+            Tk::Operator(Operator::EqualCompare) => Some(CompareType::EQ),
+            Tk::Operator(Operator::DiffCompare) => Some(CompareType::NE),
+            _ => None,
         }
     }
 
