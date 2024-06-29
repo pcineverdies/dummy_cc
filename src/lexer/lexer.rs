@@ -1,5 +1,4 @@
 use crate::lexer::token::{Bracket, Keyword, Operator, Tk, Token};
-use std::fmt;
 use std::fs;
 use std::fs::read_to_string;
 
@@ -18,92 +17,6 @@ pub struct Lexer {
     file_name: String,
     is_file: bool,
     current_first_character: u32,
-}
-
-impl Tk {
-    pub fn to_string(&self) -> String {
-        return match self {
-            Tk::Bracket(br) => match br {
-                Bracket::LCurly => "{".to_string(),
-                Bracket::RCurly => "}".to_string(),
-                Bracket::LSquare => "[".to_string(),
-                Bracket::RSquare => "]".to_string(),
-                Bracket::LBracket => "(".to_string(),
-                Bracket::RBracket => ")".to_string(),
-            },
-            Tk::Keyword(kw) => match kw {
-                Keyword::Const => "const".to_string(),
-                Keyword::Void => "void".to_string(),
-                Keyword::Return => "return".to_string(),
-                Keyword::If => "if".to_string(),
-                Keyword::Else => "else".to_string(),
-                Keyword::While => "while".to_string(),
-                Keyword::For => "for".to_string(),
-                Keyword::And => "and".to_string(),
-                Keyword::Or => "or".to_string(),
-                Keyword::True => "true".to_string(),
-                Keyword::False => "false".to_string(),
-                Keyword::Continue => "continue".to_string(),
-                Keyword::Break => "break".to_string(),
-                Keyword::U8 => "u8".to_string(),
-                Keyword::U16 => "u16".to_string(),
-                Keyword::U32 => "u32".to_string(),
-                Keyword::I8 => "i8".to_string(),
-                Keyword::I16 => "i16".to_string(),
-                Keyword::I32 => "i32".to_string(),
-            },
-            Tk::Operator(operator) => match operator {
-                Operator::Assign => "=".to_string(),
-                Operator::Comma => ",".to_string(),
-                Operator::EqualCompare => "==".to_string(),
-                Operator::DiffCompare => "!=".to_string(),
-                Operator::LTCompare => "<".to_string(),
-                Operator::GTCompare => ">".to_string(),
-                Operator::LECompare => "<=".to_string(),
-                Operator::GECompare => ">=".to_string(),
-                Operator::Minus => "-".to_string(),
-                Operator::Plus => "+".to_string(),
-                Operator::Asterisk => "*".to_string(),
-                Operator::Slash => "/".to_string(),
-                Operator::XorOp => "^".to_string(),
-                Operator::AndOp => "&".to_string(),
-                Operator::Complement => "~".to_string(),
-                Operator::Not => "!".to_string(),
-                Operator::OrOp => "|".to_string(),
-                Operator::Module => "%".to_string(),
-                Operator::LShift => "<<".to_string(),
-                Operator::RShift => ">>".to_string(),
-            },
-            Tk::Semicolon => ";".to_string(),
-            Tk::Identifier(id) => id.to_string(),
-            Tk::IntegerLiteral(num) => num.to_string(),
-            Tk::String(str) => format!("\"{}\"", str).to_string(),
-            Tk::Char(chr) => format!("\'{}\'", chr).to_string(),
-            Tk::EOF => "EOF".to_string(),
-            Tk::ERROR => "ERROR".to_string(),
-        };
-    }
-
-    pub fn is_type(&self) -> bool {
-        match self {
-            Tk::Keyword(Keyword::U8)
-            | Tk::Keyword(Keyword::I8)
-            | Tk::Keyword(Keyword::U16)
-            | Tk::Keyword(Keyword::I16)
-            | Tk::Keyword(Keyword::U32)
-            | Tk::Keyword(Keyword::I32)
-            | Tk::Keyword(Keyword::Void) => {
-                return true;
-            }
-            _ => return false,
-        }
-    }
-}
-
-impl fmt::Display for Tk {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.to_string().as_str())
-    }
 }
 
 impl Lexer {
