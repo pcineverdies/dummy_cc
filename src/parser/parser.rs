@@ -1,13 +1,9 @@
-use crate::ast::ast_impl::{AstNode, AstNodeWrapper, SourceReference, TypeNative, TypeWrapper};
-use crate::lexer::lexer_impl::{Bracket, Keyword, Operator, Tk, Token};
+use crate::ast::ast_node::{AstNode, AstNodeWrapper, SourceReference};
+use crate::ast::type_wrapper::{TypeNative, TypeWrapper};
+use crate::lexer::token::{Bracket, Keyword, Operator, Tk, Token};
 use crate::parser::symbol_table::{Declaration, SymbolTable};
 use std::string::String;
 use std::{fs::read_to_string, process::exit};
-
-// Macro to print only when code is in debug mode
-macro_rules! debug_println {
-    ($($arg:tt)*) => (if ::std::cfg!(debug_assertions) { ::std::println!($($arg)*); })
-}
 
 // Parser
 //
@@ -637,16 +633,6 @@ impl Parser {
                                 String::from(format!("Function has type void but {} was found", expr.type_ref.to_string())),
                             ));
                         }
-                        if return_type.type_native != TypeNative::Void && expr.type_ref != *return_type {
-                            return self.parser_error(NodeError(
-                                expr.clone(),
-                                String::from(format!(
-                                    "Function has type {} but {} was found",
-                                    return_type.to_string(),
-                                    expr.type_ref.to_string()
-                                )),
-                            ));
-                        }
                         result_expr = expr;
                     }
                     _ => return Fail,
@@ -659,11 +645,23 @@ impl Parser {
         }
         let semicolon = self.get_current_token(true);
         source_ref = SourceReference::merge(&SourceReference::from_token(&token), &SourceReference::from_token(&semicolon));
-        return Match(AstNodeWrapper {
+        let result = AstNodeWrapper {
             node: AstNode::new_jump(&token, &result_expr),
             source_ref,
             ..Default::default()
-        });
+        };
+        // Type is not void and mismatch between types was found
+        if return_type.type_native != TypeNative::Void && result_expr.type_ref != *return_type {
+            return self.parser_error(NodeError(
+                result,
+                String::from(format!(
+                    "Function has type {} but {} was found",
+                    return_type.to_string(),
+                    result_expr.type_ref.to_string()
+                )),
+            ));
+        }
+        return Match(result);
     }
 
     /// Parser::iteration_statement
@@ -676,7 +674,6 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn iteration_statement(&mut self, return_type: &TypeWrapper) -> ParserResult {
-        debug_println!("-> iteration_statement");
         match self.get_current() {
             Tk::Keyword(For) => {
                 let token = self.get_current_token(true);
@@ -1047,8 +1044,6 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn equality_expression(&mut self) -> ParserResult {
-        debug_println!("-> equality_expression");
-
         // stack for nodes (to have right associativity)
         let mut op_stack: Vec<Token> = Vec::new();
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
@@ -1136,8 +1131,6 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn relational_expression(&mut self) -> ParserResult {
-        debug_println!("-> relational_expression");
-
         // stack for nodes (to have right associativity)
         let mut op_stack: Vec<Token> = Vec::new();
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
@@ -1225,8 +1218,6 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn shift_expression(&mut self) -> ParserResult {
-        debug_println!("-> shift_expression");
-
         // stack for nodes (to have right associativity)
         let mut op_stack: Vec<Token> = Vec::new();
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
@@ -1314,8 +1305,6 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn additive_expression(&mut self) -> ParserResult {
-        debug_println!("-> additive_expression");
-
         // stack for nodes (to have right associativity)
         let mut op_stack: Vec<Token> = Vec::new();
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
@@ -1399,8 +1388,6 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn multiplicative_expression(&mut self) -> ParserResult {
-        debug_println!("-> multiplicative_expression");
-
         // stack for nodes (to have right associativity)
         let mut op_stack: Vec<Token> = Vec::new();
         let mut node_stack: Vec<AstNodeWrapper> = Vec::new();
@@ -1494,7 +1481,6 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn cast_expression(&mut self) -> ParserResult {
-        debug_println!("-> cast_expression");
         match self.get_current() {
             Tk::Bracket(LBracket) => {
                 let token_l = self.get_current_token(true);
@@ -1553,7 +1539,6 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn pointer_type(&mut self) -> ParserResult {
-        debug_println!("-> pointer_type");
         let mut pointer_counter = 0;
         let mut is_const = false;
         let mut source_ref = SourceReference::from_token(&self.get_current_token(false));
@@ -1604,7 +1589,6 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn type_native(&mut self) -> ParserResult {
-        debug_println!("-> type_native");
         if self.get_current().is_type() {
             let token = self.get_current_token(true);
             let source_ref = SourceReference::from_token(&token);
@@ -1637,7 +1621,6 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn unary_expression(&mut self) -> ParserResult {
-        debug_println!("-> unary_expression");
         match self.get_current() {
             Tk::Operator(Plus)
             | Tk::Operator(Minus)
@@ -1702,7 +1685,6 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn postfix_expression(&mut self) -> ParserResult {
-        debug_println!("-> postfix_expression");
         match self.primary_expression() {
             Match(mut node) => {
                 // Postfix operators are left associative
@@ -1771,7 +1753,6 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn postfix_operator(&mut self) -> ParserResult {
-        debug_println!("-> postfix_operator");
         match self.get_current() {
             Tk::Bracket(LSquare) => {
                 let token_l = self.get_current_token(true);
@@ -1853,7 +1834,6 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn primary_expression(&mut self) -> ParserResult {
-        debug_println!("-> primary_expression");
         match self.get_current() {
             Tk::Identifier(_) | Tk::IntegerLiteral(_) | Tk::Char(_) => {
                 let token = self.get_current_token(true);
@@ -1919,7 +1899,6 @@ impl Parser {
     /// @return [ParseResult]: return Match with the corresponding AST in case of success, Fail in
     /// case of error, Unmatch in case of non correspondant parse way, whenever it is possible
     fn expression_list(&mut self) -> ParserResult {
-        debug_println!("-> expression_list");
         let mut list: Vec<AstNodeWrapper> = Vec::new();
         let mut source_ref: SourceReference;
         match self.expression() {
@@ -1976,7 +1955,7 @@ impl Parser {
                     "\x1b[91merror parser: \x1b[0midentifier `\x1b[34m{}\x1b[0m` not found, did you mean `\x1b[34m{}\x1b[0m`?",
                     found, expected
                 );
-                println!("");
+                eprintln!("");
                 for line_number in node.source_ref.init_line..=node.source_ref.last_line {
                     let line = &file_lines[line_number as usize - 1];
                     eprint!("{}\t| {}\n\t| ", line_number, line);

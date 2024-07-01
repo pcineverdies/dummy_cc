@@ -3,7 +3,7 @@ mod test {
     #[test]
     fn parser_test_1() {
         use crate::lexer::lexer_impl::Lexer;
-        use crate::parser::parser_impl::Parser;
+        use crate::parser::parser::Parser;
 
         let input = String::from(
             "

@@ -1,9 +1,8 @@
 use edit_distance;
 
-use crate::{
-    ast::ast_impl::{AstNode, AstNodeWrapper, TypeWrapper},
-    lexer::lexer_impl::Tk,
-};
+use crate::ast::ast_node::{AstNode, AstNodeWrapper};
+use crate::ast::type_wrapper::TypeWrapper;
+use crate::lexer::token::Tk;
 
 /// Declaration
 ///
