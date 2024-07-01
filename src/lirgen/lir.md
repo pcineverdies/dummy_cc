@@ -2,11 +2,11 @@
 
 ## Structure
 
-The intermediate rapresentation employes a list of instructions to represent the flow of the program.
+The intermediate representation employs a list of instructions to represent the flow of the program.
 Each instruction uses some source registers, and possibly has a destination register where the result is put.
 Being a SSA-like representation, no register is assigned two times.
 To simplify the implementation, the stack is used to store and retrieve values from. 
-The usage of the stack limits the amount of optimization which can be done, but removes the need of the φ function.
+he usage of the stack limits the amount of optimization which can be done, but removes the need of the φ function.
 Registers are virtual, thus endless. The backend is in charge of implementing register-allocation.
 
 ## List of instructions/nodes
@@ -31,12 +31,12 @@ In the first case, the format is
 
 `vx` = `alloc<type> {vy}`
 
-where `vx` is the register containing the address of the new variable, `vy` is an optional initialization value;
+Where `vx` is the register containing the address of the new variable, `vy` is an optional initialization value;
 In the second case,
 
 `vx` = `alloc<type> [vy]`
 
-where `vx` is the register containing the address of the new array, `vy` is the register contiaing the size of the array in bytes.
+Where `vx` is the register containing the address of the new array, `vy` is the register containing the size of the array in bytes.
 
 ### Return
 
@@ -104,7 +104,7 @@ A branch can be of three different types
 `vx = op <type> vy, vz `
 
 Apply a binary operation on `vy` and `vz`, store the result in `vx`.
-The available operations are: set if equal (`seq`), set if not equal (`sneq`), set if less than (`slt`), set if greater than (`sgt`), set if less equal than (`sle`), set if greater equal than (`sge`), substract (`sub`), add (`add`), mutiply (`mul`),  divide (`div`), xor (`xor`), and (`and`), or (`or`), remainder (`rem`), shift left (`sl`), shift right (`sr`);
+The available operations are: set if equal (`seq`), set if not equal (`sneq`), set if less than (`slt`), set if greater than (`sgt`), set if less equal than (`sle`), set if greater equal than (`sge`), subtract (`sub`), add (`add`), multiply (`mul`),  divide (`div`), xor (`xor`), and (`and`), or (`or`), remainder (`rem`), shift left (`sl`), shift right (`sr`);
 
 ### Unary
 
