@@ -29,8 +29,8 @@ pub enum IrNode {
     // name of the function, return type, argument types, list of nodes
     FunctionDeclaration(String, TypeWrapper, Vec<TypeWrapper>, Vec<IrNode>),
     // type of the allocated data, destination register, source register, is global, size in bytes,
-    // from register
-    Alloc(TypeWrapper, u32, u32, bool, u32, bool),
+    // from register, name
+    Alloc(TypeWrapper, u32, u32, bool, u32, bool, String),
     // type of the returned value, source register
     Return(TypeWrapper, u32),
     // type of the data, destination register, constant value
@@ -85,7 +85,7 @@ impl IrNode {
     pub fn get_src(&self) -> Vec<u32> {
         match &self {
             Return(_, src) => return vec![*src],
-            Alloc(_, _, src, _, _, _) => return vec![*src],
+            Alloc(_, _, src, ..) => return vec![*src],
             Cast(_, _, _, src) => return vec![*src],
             Store(_, _, src) => return vec![*src],
             LoadR(_, _, src) => return vec![*src],
@@ -138,7 +138,7 @@ impl IrNode {
                 }
                 return format!("\treturn\n");
             }
-            Alloc(tt, dest, src, is_global, size, from_reg) => {
+            Alloc(tt, dest, src, is_global, size, from_reg, name) => {
                 let mut result = format!("\tv{} = alloc<{}> ", dest, tt.to_string());
                 // No initizialization register
                 if *src != 0 {
@@ -153,7 +153,7 @@ impl IrNode {
                     result += &format!(" !global ");
                 }
 
-                return result + &format!("\n");
+                return result + &format!("\t(@{})\n", name);
             }
             MovC(tt, dest, src) => {
                 return format!("\tv{} = <{}> ${}\n", dest, tt.to_string(), src);

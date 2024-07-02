@@ -387,10 +387,10 @@ impl Lirgen {
                     }
                     None => {
                         let result_register = self.get_register();
-                        let store_constant_node = MovC(tt.clone(), result_register, size);
+                        let store_constant_node = MovC(tt.clone(), result_register, size / 2);
                         result.ir_list.push(store_constant_node);
                         constant_register = result_register;
-                        self.add_constant(result_register, size);
+                        self.add_constant(result_register, size / 2);
                     }
                 }
 
@@ -532,7 +532,15 @@ impl Lirgen {
             let mut expression_lin = self.linearize(&expression, get_address, 0, 0);
             let init_register = expression_lin.result_register;
             let result_register_v = self.get_register();
-            let store_node = Alloc(tt.type_ref.clone(), result_register_v, 0, self.is_global, init_register, true);
+            let store_node = Alloc(
+                tt.type_ref.clone(),
+                result_register_v,
+                0,
+                self.is_global,
+                init_register,
+                true,
+                name.tk.get_identifier(),
+            );
 
             result.ir_list.append(&mut expression_lin.ir_list);
             result.ir_list.push(store_node);
@@ -542,7 +550,15 @@ impl Lirgen {
             let mut tt = tt.type_ref.clone();
             let result_register = self.get_register();
             tt.pointer += 1;
-            let store_node = Alloc(tt, result_register, result_register_v, self.is_global, size, false);
+            let store_node = Alloc(
+                tt,
+                result_register,
+                result_register_v,
+                self.is_global,
+                size,
+                false,
+                name.tk.get_identifier(),
+            );
             result.ir_list.push(store_node);
 
             result.result_register = result_register;
@@ -957,7 +973,15 @@ impl Lirgen {
 
             // Allocate the variable
             let result_register = self.get_register();
-            let store_node = Alloc(tt.type_ref.clone(), result_register, init_register, self.is_global, 1, false);
+            let store_node = Alloc(
+                tt.type_ref.clone(),
+                result_register,
+                init_register,
+                self.is_global,
+                1,
+                false,
+                name.tk.get_identifier(),
+            );
             result.ir_list.push(store_node);
             result.result_register = result_register;
 
@@ -1216,6 +1240,7 @@ impl Lirgen {
                     false,
                     1,
                     false,
+                    name.tk.get_identifier(),
                 );
 
                 // Save both pointer and value of the veriables
