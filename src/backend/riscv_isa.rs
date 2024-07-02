@@ -7,7 +7,6 @@ pub enum RiscvInstructionType {
     XORI,
     SLLI,
     SRLI,
-    SRAI,
     LUI,
     AUIPC,
     ADD,
@@ -23,7 +22,7 @@ pub enum RiscvInstructionType {
     BEQ,
     BNE,
     BLT,
-    BGT,
+    BGE,
     LB,
     LH,
     LW,
@@ -36,6 +35,7 @@ pub enum RiscvInstructionType {
     LABEL,
     #[default]
     NOP,
+    LABELFUNCTION,
 }
 
 use RiscvInstructionType::*;
@@ -50,7 +50,6 @@ impl RiscvInstructionType {
             XORI => format!("xori"),
             SLLI => format!("slli"),
             SRLI => format!("srli"),
-            SRAI => format!("srai"),
             LUI => format!("lui"),
             AUIPC => format!("auipc"),
             ADD => format!("add"),
@@ -66,7 +65,7 @@ impl RiscvInstructionType {
             BEQ => format!("beq"),
             BNE => format!("bne"),
             BLT => format!("blt"),
-            BGT => format!("bgt"),
+            BGE => format!("bge"),
             LB => format!("lb"),
             LH => format!("lh"),
             LW => format!("lw"),
@@ -76,7 +75,7 @@ impl RiscvInstructionType {
             DIV => format!("div"),
             REM => format!("rem"),
             MUL => format!("mul"),
-            LABEL => format!(""),
+            LABEL | LABELFUNCTION => format!(""),
             NOP => format!("nop"),
         }
     }
@@ -92,6 +91,7 @@ pub struct RiscvInstruction {
     pub label: u32,
     pub label_function: u32,
     pub is_unsigned: bool,
+    pub name: String,
 }
 
 impl RiscvInstruction {
@@ -103,185 +103,122 @@ impl RiscvInstruction {
             -4 => format!("ra"),
             -5 => format!("x0"),
             -6 => format!("a0"),
+            -7 => format!("a1"),
+            -8 => format!("a2"),
+            -9 => format!("a3"),
+            -10 => format!("a4"),
+            -11 => format!("a5"),
+            -12 => format!("a6"),
+            -13 => format!("a7"),
             _ => format!("r{}", reg),
         }
     }
 
     pub fn to_string(&self) -> String {
         match self.tt {
-            ADDI => format!(
+            ADDI | ANDI | ORI | XORI | SLLI => format!(
                 "\t{}\t{}, {}, {}\n",
                 self.tt.to_string(),
                 RiscvInstruction::reg_to_string(self.dest),
                 RiscvInstruction::reg_to_string(self.src1),
                 self.immediate
             ),
-            SLTI => format!(
-                "\t{}\t{}, {}, {}\n",
+            SLTI | SRLI => {
+                let mut opcode = format!("\t{}", self.tt.to_string());
+                if self.is_unsigned {
+                    opcode += &"u";
+                }
+                format!(
+                    "{}\t{}, {}, {}\n",
+                    opcode,
+                    RiscvInstruction::reg_to_string(self.dest),
+                    RiscvInstruction::reg_to_string(self.src1),
+                    self.immediate
+                )
+            }
+            LUI | AUIPC => format!(
+                "\t{}\t{}, {}\n",
                 self.tt.to_string(),
                 RiscvInstruction::reg_to_string(self.dest),
-                RiscvInstruction::reg_to_string(self.src1),
-                self.immediate
+                self.immediate,
             ),
-            ANDI => format!(
-                "\t{}\t{}, {}, {}\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
-                RiscvInstruction::reg_to_string(self.src1),
-                self.immediate
-            ),
-            ORI => format!(
-                "\t{}\t{}, {}, {}\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
-                RiscvInstruction::reg_to_string(self.src1),
-                self.immediate
-            ),
-            XORI => format!(
-                "\t{}\t{}, {}, {}\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
-                RiscvInstruction::reg_to_string(self.src1),
-                self.immediate
-            ),
-            SLLI => format!(
-                "\t{}\t{}, {}, {}\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
-                RiscvInstruction::reg_to_string(self.src1),
-                self.immediate
-            ),
-            SRLI => format!(
-                "\t{}\t{}, {}, {}\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
-                RiscvInstruction::reg_to_string(self.src1),
-                self.immediate
-            ),
-            SRAI => format!(
-                "\t{}\t{}, {}, {}\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
-                RiscvInstruction::reg_to_string(self.src1),
-                self.immediate
-            ),
-            LUI => format!("\t{} TBD", self.tt.to_string()),
-            AUIPC => format!("\t{} TBD", self.tt.to_string()),
-            ADD => format!(
+            ADD | AND | OR | XOR | SLL | SUB => format!(
                 "\t{}\t{}, {}, {}\n",
                 self.tt.to_string(),
                 RiscvInstruction::reg_to_string(self.dest),
                 RiscvInstruction::reg_to_string(self.src1),
                 RiscvInstruction::reg_to_string(self.src2)
             ),
-            SLT => format!(
-                "\t{}\t{}, {}, {}\n",
+            SLT | DIV | REM | MUL | SRL => {
+                let mut opcode = format!("\t{}", self.tt.to_string());
+                if self.is_unsigned {
+                    opcode += &"u";
+                }
+                format!(
+                    "{}\t{}, {}, {}\n",
+                    opcode,
+                    RiscvInstruction::reg_to_string(self.dest),
+                    RiscvInstruction::reg_to_string(self.src1),
+                    RiscvInstruction::reg_to_string(self.src2),
+                )
+            }
+            J => format!("\t{}\t%L_{}_{}\n", self.tt.to_string(), self.label_function, self.label),
+            JALR => {
+                if self.src1 == 0 {
+                    format!(
+                        "\t{}\t{}, @{}\n",
+                        self.tt.to_string(),
+                        RiscvInstruction::reg_to_string(self.dest),
+                        self.name
+                    )
+                } else {
+                    format!(
+                        "\t{}\t{}, {}\n",
+                        self.tt.to_string(),
+                        RiscvInstruction::reg_to_string(self.dest),
+                        RiscvInstruction::reg_to_string(self.src1),
+                    )
+                }
+            }
+            BEQ | BNE => format!(
+                "\t{}\t{}, {}, %L_{}_{}\n",
                 self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
                 RiscvInstruction::reg_to_string(self.src1),
-                RiscvInstruction::reg_to_string(self.src2)
+                RiscvInstruction::reg_to_string(self.src2),
+                self.label_function,
+                self.label
             ),
-            AND => format!(
-                "\t{}\t{}, {}, {}\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
-                RiscvInstruction::reg_to_string(self.src1),
-                RiscvInstruction::reg_to_string(self.src2)
-            ),
-            OR => format!(
-                "\t{}\t{}, {}, {}\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
-                RiscvInstruction::reg_to_string(self.src1),
-                RiscvInstruction::reg_to_string(self.src2)
-            ),
-            XOR => format!(
-                "\t{}\t{}, {}, {}\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
-                RiscvInstruction::reg_to_string(self.src1),
-                RiscvInstruction::reg_to_string(self.src2)
-            ),
-            SLL => format!(
-                "\t{}\t{}, {}, {}\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
-                RiscvInstruction::reg_to_string(self.src1),
-                RiscvInstruction::reg_to_string(self.src2)
-            ),
-            SRL => format!(
-                "\t{}\t{}, {}, {}\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
-                RiscvInstruction::reg_to_string(self.src1),
-                RiscvInstruction::reg_to_string(self.src2)
-            ),
-            SUB => format!(
-                "\t{}\t{}, {}, {}\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
-                RiscvInstruction::reg_to_string(self.src1),
-                RiscvInstruction::reg_to_string(self.src2)
-            ),
-            J => format!("{} TBD", self.tt.to_string()),
-            JALR => format!(
+            BLT | BGE => {
+                let mut opcode = format!("\t{}", self.tt.to_string());
+                if !self.is_unsigned {
+                    opcode += &"u";
+                }
+                format!(
+                    "{}\t{}, {}, %L_{}_{}\n",
+                    opcode,
+                    RiscvInstruction::reg_to_string(self.src1),
+                    RiscvInstruction::reg_to_string(self.src2),
+                    self.label_function,
+                    self.label
+                )
+            }
+            LH | LW | LB => format!(
                 "\t{}\t{}, {}({})\n",
                 self.tt.to_string(),
                 RiscvInstruction::reg_to_string(self.dest),
                 self.immediate,
                 RiscvInstruction::reg_to_string(self.src1)
             ),
-            BEQ => format!("{} TBD", self.tt.to_string()),
-            BNE => format!("{} TBD", self.tt.to_string()),
-            BLT => format!("{} TBD", self.tt.to_string()),
-            BGT => format!("{} TBD", self.tt.to_string()),
-            LB => format!(
-                "\t{}\t {}, {}({})\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
-                self.immediate,
-                RiscvInstruction::reg_to_string(self.src1)
-            ),
-            LH => format!(
+            SB | SH | SW => format!(
                 "\t{}\t{}, {}({})\n",
                 self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
+                RiscvInstruction::reg_to_string(self.src2),
                 self.immediate,
-                RiscvInstruction::reg_to_string(self.src1)
-            ),
-            LW => format!(
-                "\t{}\t{}, {}({})\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.dest),
-                self.immediate,
-                RiscvInstruction::reg_to_string(self.src1)
-            ),
-            SB => format!(
-                "\t{}\t{}, {}({})\n",
-                self.tt.to_string(),
                 RiscvInstruction::reg_to_string(self.src1),
-                self.immediate,
-                RiscvInstruction::reg_to_string(self.src2)
             ),
-            SH => format!(
-                "\t{}\t{}, {}({})\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.src1),
-                self.immediate,
-                RiscvInstruction::reg_to_string(self.src2)
-            ),
-            SW => format!(
-                "\t{}\t{}, {}({})\n",
-                self.tt.to_string(),
-                RiscvInstruction::reg_to_string(self.src1),
-                self.immediate,
-                RiscvInstruction::reg_to_string(self.src2)
-            ),
-            DIV => format!("{} TBD", self.tt.to_string()),
-            REM => format!("{} TBD", self.tt.to_string()),
-            MUL => format!("{} TBD", self.tt.to_string()),
-            LABEL => format!("L_{}_{}: TBD", self.label_function, self.label),
-            NOP => format!("\t{}", self.tt.to_string()),
+            LABEL => format!("%L_{}_{}:\n", self.label_function, self.label),
+            NOP => format!("\t{}\n", self.tt.to_string()),
+            LABELFUNCTION => format!("\n@{}:\n", self.name),
         }
     }
 }

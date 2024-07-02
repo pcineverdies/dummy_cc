@@ -1,5 +1,5 @@
 use crate::ast::ast_node::{AstNode, AstNodeWrapper};
-use crate::ast::type_wrapper::TypeWrapper;
+use crate::ast::type_wrapper::{TypeNative, TypeWrapper};
 use crate::lexer::token::{Keyword, Operator, Tk};
 use crate::lirgen::irnode::{CompareType, IrNode};
 use std::collections::HashMap;
@@ -768,7 +768,11 @@ impl Lirgen {
                     list_params.push(linearized.result_register);
                 }
 
-                let result_register = self.get_register();
+                let result_register = if ast.type_ref.type_native == TypeNative::Void {
+                    0
+                } else {
+                    self.get_register()
+                };
                 result.ir_list.push(IrNode::Call(id, ast.type_ref.clone(), list_params, result_register));
 
                 // We cannot say for sure what happens withing the function, thus we cannot rely on

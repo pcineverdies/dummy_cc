@@ -101,6 +101,22 @@ impl TypeWrapper {
         }
     }
 
+    /// TypeWrapper::is_signed
+    ///
+    /// Get if the type is signed or not
+    ///
+    /// @return [u32] size
+    pub fn is_signed(&self) -> bool {
+        if self.pointer != 0 {
+            return false;
+        }
+        match &self.type_native {
+            TypeNative::U8 | TypeNative::U16 | TypeNative::U32 => false,
+            TypeNative::I8 | TypeNative::I16 | TypeNative::I32 => true,
+            _ => panic!("Cannot get sign of non-signed type"),
+        }
+    }
+
     /// TypeWrapper::are_compatible
     ///
     /// Check whether two types are compatible or not. This function can be expanded in order to
