@@ -59,6 +59,7 @@ This was fundamental to obtain a working recursive descent parser.
 - [r/compilers](https://www.reddit.com/r/Compilers/).
 - [r/ProgrammingLanguages](https://www.reddit.com/r/ProgrammingLanguages/).
 - [carbon-ir](https://github.com/RobbeDGreef/carbon-ir). As inspiration for my IR.
+- [Compiler Explorer](https://godbolt.org/). To actively understand different compilations stages.
 - Many online materail. Unfortunately I have not kept track of all of them. Here are some:
     - [Coping with nontermination: some thoughts on stopping loops](https://outerproduct.net/boring/2023-02-11_term-loop.html).
     - [A gentle introduction to LLVM IR](https://mcyoung.xyz/2023/08/01/llvm-ir/).

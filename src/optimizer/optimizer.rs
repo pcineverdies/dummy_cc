@@ -11,7 +11,6 @@ pub struct Optimizer {
 }
 
 impl Optimizer {
-
     /// Optimizer::new
     ///
     /// Create a new optimizer given a specific optimization level.
@@ -67,15 +66,12 @@ impl Optimizer {
         // The initial node is always a program made of function declarations. The algorithm runs
         // on each function declaration individually
         if let Program(functions_list) = ir {
-
             // New list of functions
             let mut new_functions_list: Vec<IrNode> = vec![];
             for function in functions_list {
-
                 // New list of nodes for the current function
                 let mut new_nodes: Vec<IrNode> = vec![];
                 if let FunctionDeclaration(n, t, args, nodes) = function {
-
                     // Do not optimize `init` function
                     if n == "init" {
                         new_functions_list.push(FunctionDeclaration(n, t, args, nodes.clone()));
@@ -87,7 +83,6 @@ impl Optimizer {
 
                     // Go through each node of the list in reverse order
                     for i in (0..nodes.len()).rev() {
-
                         // If the current node is a branch, analyze the following nodes. If one of
                         // them is the destination of the jump, mark as "to be removed" both the
                         // branch and the label
@@ -165,11 +160,9 @@ impl Optimizer {
         if let Program(functions_list) = ir {
             let mut new_functions_list: Vec<IrNode> = vec![];
             for function in functions_list {
-
                 // New list of nodes for the current function
                 let mut new_nodes: Vec<IrNode> = vec![];
                 if let FunctionDeclaration(n, t, args, nodes) = function {
-
                     // Do not optimize `init` function
                     if n == "init" {
                         new_functions_list.push(FunctionDeclaration(n, t, args, nodes.clone()));
@@ -198,7 +191,6 @@ impl Optimizer {
                     }
 
                     loop {
-
                         // Set this variable to true whether a new critical node is found
                         let mut is_added = false;
 

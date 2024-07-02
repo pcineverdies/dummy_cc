@@ -1,8 +1,10 @@
 mod ast;
+mod backend;
 mod lexer;
 mod lirgen;
 mod optimizer;
 mod parser;
+use backend::codegen_riscv::Codegen as cg_riscv;
 use clap::Parser as ClapParser;
 use lexer::lexer::Lexer;
 use lirgen::lirgen::Lirgen;
@@ -21,12 +23,16 @@ struct Cli {
     opt: u32,
 
     /// Show result of parsing
-    #[arg(long, action = clap::ArgAction::Count)]
-    print_ast: u8,
+    #[arg(long, action = clap::ArgAction::SetTrue, default_value_t = false)]
+    print_ast: bool,
 
     /// Show result of lirgen
-    #[arg(long, action = clap::ArgAction::Count)]
-    print_lir: u8,
+    #[arg(long, action = clap::ArgAction::SetTrue, default_value_t = false)]
+    print_lir: bool,
+
+    /// Target architecture
+    #[arg(short, long, default_value_t = format!("riscv"), value_parser = ["riscv"])]
+    arch: String,
 }
 
 fn main() {
@@ -46,7 +52,7 @@ fn main() {
     }
     let ast = ast_wrapped.unwrap();
 
-    if args.print_ast > 0 {
+    if args.print_ast {
         println!("{}", ast.to_string(0));
     }
 
@@ -58,7 +64,15 @@ fn main() {
         ir = opt.optimize(ir);
     }
 
-    if args.print_lir > 0 {
+    if args.print_lir {
         println!("{}", ir.to_string());
     }
+
+    let _code = match args.arch.as_str() {
+        "riscv" => {
+            let mut codegen = cg_riscv::new();
+            codegen.generate_code(&ir);
+        }
+        _ => panic!("Unsupported architecture: {}", args.arch),
+    };
 }

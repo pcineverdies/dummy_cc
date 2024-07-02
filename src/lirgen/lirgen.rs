@@ -770,6 +770,10 @@ impl Lirgen {
 
                 let result_register = self.get_register();
                 result.ir_list.push(IrNode::Call(id, ast.type_ref.clone(), list_params, result_register));
+
+                // We cannot say for sure what happens withing the function, thus we cannot rely on
+                // the stored values anymore
+                self.clear_variable_values();
                 result.result_register = result_register;
                 return result;
             } else {
