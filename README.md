@@ -1,5 +1,5 @@
 # dummy_cc
-Dummy C Compiler for Learning Purposes 
+Dummy C-is Compiler for Learning Purposes, targeting RV32IM.
 
 ## Structure
 
@@ -22,6 +22,9 @@ The file [Optimization.md](./src/optimizer/optimization.md) describes the techni
 Some of these techniques are implemented directly during the LIR construction, thus they can be found in [lirgen.rs](./src/lirgen/lirgen.rs).
 
 ### [Backend](./src/backend)
+The file [Backend.md](./src/backend/backend.md) describes the backend process.
+The one and only target of the compiler is RISC-V on 32 bits, supporting extensions I and M.
+The result is compliant with the RISC-V ABI.
 
 ## Build
 
@@ -40,8 +43,9 @@ Usage: dummy_cc [OPTIONS] --file-name <FILE_NAME>
 Options:
   -f, --file-name <FILE_NAME>  Path of the file to compile
   -o, --opt <OPT>              Required level of optimization [default: 0]
-      --print-ast...           Show result of parsing
-      --print-lir...           Show result of lirgen
+      --print-ast              Show result of parsing
+      --print-lir              Show result of lirgen
+  -a, --arch <ARCH>            Target architecture [default: rv32im] [possible values: rv32im]
   -h, --help                   Print help
   -V, --version                Print version
 ```
@@ -60,6 +64,9 @@ This was fundamental to obtain a working recursive descent parser.
 - [r/ProgrammingLanguages](https://www.reddit.com/r/ProgrammingLanguages/).
 - [carbon-ir](https://github.com/RobbeDGreef/carbon-ir). As inspiration for my IR.
 - [Compiler Explorer](https://godbolt.org/). To actively understand different compilations stages.
+- [RISC-V Interpreter](https://www.cs.cornell.edu/courses/cs3410/2019sp/riscv/interpreter/). To test the initial results of the compilation.
+- [RISC-V Specifications V2.2](https://riscv.org/wp-content/uploads/2017/05/riscv-spec-v2.2.pdf). To understand the target ISA.
+- [This RISC-V Cheatsheet](https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf). Always on my side!
 - Many online materail. Unfortunately I have not kept track of all of them. Here are some:
     - [Coping with nontermination: some thoughts on stopping loops](https://outerproduct.net/boring/2023-02-11_term-loop.html).
     - [A gentle introduction to LLVM IR](https://mcyoung.xyz/2023/08/01/llvm-ir/).

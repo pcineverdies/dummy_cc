@@ -31,7 +31,7 @@ struct Cli {
     print_lir: bool,
 
     /// Target architecture
-    #[arg(short, long, default_value_t = format!("riscv"), value_parser = ["riscv"])]
+    #[arg(short, long, default_value_t = format!("rv32im"), value_parser = ["rv32im"])]
     arch: String,
 }
 
@@ -69,7 +69,7 @@ fn main() {
     }
 
     let _code = match args.arch.as_str() {
-        "riscv" => {
+        "rv32im" => {
             let mut codegen = cg_riscv::new();
             codegen.generate_code(&ir);
         }
