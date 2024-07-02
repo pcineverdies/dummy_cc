@@ -1,5 +1,5 @@
 # dummy_cc
-Dummy C-is Compiler for Learning Purposes, targeting RV32IM.
+Dummy C-ish Compiler for Learning Purposes, targeting RV32IM.
 
 ## Structure
 
@@ -67,7 +67,7 @@ This was fundamental to obtain a working recursive descent parser.
 - [RISC-V Interpreter](https://www.cs.cornell.edu/courses/cs3410/2019sp/riscv/interpreter/). To test the initial results of the compilation.
 - [RISC-V Specifications V2.2](https://riscv.org/wp-content/uploads/2017/05/riscv-spec-v2.2.pdf). To understand the target ISA.
 - [This RISC-V Cheatsheet](https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf). Always on my side!
-- Many online materail. Unfortunately I have not kept track of all of them. Here are some:
+- Many online material. Unfortunately I have not kept track of all of them. Here are some:
     - [Coping with nontermination: some thoughts on stopping loops](https://outerproduct.net/boring/2023-02-11_term-loop.html).
     - [A gentle introduction to LLVM IR](https://mcyoung.xyz/2023/08/01/llvm-ir/).
     - [Lectures on optimization from CS143 @Stanford](https://web.stanford.edu/class/archive/cs/cs143/cs143.1128/).
