@@ -184,10 +184,26 @@ impl RiscvInstruction {
             ),
 
             // Arithmetical instructions with immediate as argument and possible unsigned version
-            SLTI | SRLI => {
+            SLTI => {
                 let mut opcode = format!("\t{}", self.tt.to_string());
                 if self.is_unsigned {
                     opcode += &"u";
+                }
+                format!(
+                    "{}\t{}, {}, {}\n",
+                    opcode,
+                    RiscvInstruction::reg_to_string(self.dest, self.register_allocated),
+                    RiscvInstruction::reg_to_string(self.src1, self.register_allocated),
+                    self.immediate
+                )
+            }
+
+            SRLI => {
+                let mut opcode = format!("\t");
+                if self.is_unsigned {
+                    opcode += &"srli";
+                } else {
+                    opcode += &"srai";
                 }
                 format!(
                     "{}\t{}, {}, {}\n",

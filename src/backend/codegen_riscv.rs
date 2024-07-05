@@ -719,7 +719,6 @@ impl Codegen {
                         binary_instruction.src2 = *src1 as i32;
                         binary_instruction.src1 = *src2 as i32;
                         binary_instruction.tt = SLT;
-                        to_add = false;
                     }
                     // dest = if src1 < src2 {1} else {0}
                     Operator::LTCompare => binary_instruction.tt = SLT,
@@ -999,6 +998,9 @@ impl Codegen {
             if instr.src1 == target || instr.src2 == target {
                 return true;
             }
+            if instr.dest == target {
+                return false;
+            }
             if instr.label > 0 {
                 labels_to_analyze.push((instr.label, i));
             }
@@ -1024,6 +1026,9 @@ impl Codegen {
                 let instr = instructions[i].clone();
                 if instr.tt == LABEL && instr.label > 0 && labels_found.contains(&instr.label) {
                     break;
+                }
+                if instr.dest == target {
+                    return false;
                 }
                 if instr.src1 == target || instr.src2 == target {
                     return true;
@@ -1092,7 +1097,7 @@ impl Codegen {
                             }
                         }
                         if register_to_use == -1 {
-                            panic!("No free registers")
+                            panic!("no free registers");
                         }
                     }
                 }
