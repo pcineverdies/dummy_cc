@@ -106,7 +106,7 @@ impl Codegen {
             tt: SW,
             src1: SP,
             src2: RA,
-            immediate: 4 as i32,
+            immediate: 0 as i32,
             ..Default::default()
         });
 
@@ -115,7 +115,7 @@ impl Codegen {
             tt: SW,
             src1: SP,
             src2: FP,
-            immediate: 8 as i32,
+            immediate: 4 as i32,
             ..Default::default()
         });
 
@@ -133,15 +133,7 @@ impl Codegen {
         // stack, before the new FP. These instructions load those values in the appropriate
         // virtual registers.
         if args.len() > 8 {
-            for i in 8..args.len() {
-                pre_function.push(RiscvInstruction {
-                    tt: LW,
-                    dest: i as i32,
-                    src1: SP,
-                    immediate: (i as i32 - 7) * 4,
-                    ..Default::default()
-                });
-            }
+            todo!();
         }
 
         // If we hare handling the init function, we have to initialize the stack pointer to a
@@ -184,7 +176,7 @@ impl Codegen {
             tt: LW,
             dest: RA,
             src1: SP,
-            immediate: 4 as i32,
+            immediate: 0 as i32,
             ..Default::default()
         });
 
@@ -193,7 +185,7 @@ impl Codegen {
             tt: LW,
             dest: FP,
             src1: SP,
-            immediate: 8 as i32,
+            immediate: 4 as i32,
             ..Default::default()
         });
 
@@ -342,6 +334,13 @@ impl Codegen {
                         store_instruction.src1 = FP;
                         store_instruction.immediate = elem.offset as i32;
                         in_function.push(store_instruction);
+                        in_function.push(RiscvInstruction {
+                            tt: ADDI,
+                            dest: *dest as i32,
+                            src1: FP,
+                            immediate: elem.offset as i32,
+                            ..Default::default()
+                        });
                         return (in_function, post_function);
                     }
                 }
@@ -501,35 +500,12 @@ impl Codegen {
                         });
                     // Otherwise, we push them on the stack
                     } else {
-                        in_function.push(RiscvInstruction {
-                            tt: SW,
-                            src1: SP,
-                            src2: arguments[i] as i32,
-                            // The first extra argument is put on top of region for the arguments
-                            immediate: -(extra_space as i32) + (i as i32 - 7) * 4 as i32,
-                            ..Default::default()
-                        });
+                        todo!();
                     }
-                    //          |         | <- new sp
-                    //          ----------
-                    //          | arg8    |
-                    //          ----------
-                    //          | arg9    |
-                    //          ----------
-                    //          | arg10   |
-                    //          ----------
-                    //          |         | <- old sp
-                    //          ----------
                 }
                 // Move the SP if required
                 if extra_arguments > 0 {
-                    in_function.push(RiscvInstruction {
-                        tt: ADDI,
-                        dest: SP,
-                        src1: SP,
-                        immediate: -extra_space,
-                        ..Default::default()
-                    });
+                    todo!();
                 }
                 // Add a jump to the function
                 in_function.push(RiscvInstruction {
@@ -550,13 +526,7 @@ impl Codegen {
                 }
                 // Put the stack value back
                 if extra_arguments > 0 {
-                    in_function.push(RiscvInstruction {
-                        tt: ADDI,
-                        dest: SP,
-                        src1: SP,
-                        immediate: extra_space,
-                        ..Default::default()
-                    });
+                    todo!();
                 }
             }
             // Handle a branch
@@ -1079,7 +1049,7 @@ impl Codegen {
                 for j in 0..is_register_used.len() {
                     if is_register_used[j].0 {
                         if !self.find_usage_register(&instructions, i as u32 + 1, is_register_used[j].2) {
-                            is_register_used[j] = (false, true, 0);
+                            is_register_used[j].0 = false;
                         }
                     }
                 }
@@ -1091,7 +1061,7 @@ impl Codegen {
                     None => panic!("Virtual register {} has no associated physical register", instr.src1),
                 }
                 if !self.find_usage_register(&instructions, i as u32 + 1, virtual_value) {
-                    is_register_used[instr.src1 as usize] = (false, true, 0);
+                    is_register_used[instr.src1 as usize].0 = false;
                 }
             }
             if instr.src2 > 0 {
@@ -1101,12 +1071,15 @@ impl Codegen {
                     None => panic!("Virtual register {} has no associated physical register", instr.src2),
                 }
                 if !self.find_usage_register(&instructions, i as u32 + 1, virtual_value) {
-                    is_register_used[instr.src2 as usize] = (false, true, 0);
+                    is_register_used[instr.src2 as usize].0 = false;
                 }
             }
             if instr.dest > 0 {
+                let virtual_value = instr.dest;
                 match virtual_register_allocation.get(&instr.dest) {
-                    Some(reg) => instr.dest = *reg as i32,
+                    Some(reg) => {
+                        instr.dest = *reg as i32;
+                    }
                     None => {
                         let mut register_to_use: i32 = -1;
                         for i in 0..is_register_used.len() {
@@ -1123,9 +1096,69 @@ impl Codegen {
                         }
                     }
                 }
+                if !self.find_usage_register(&instructions, i as u32 + 1, virtual_value) {
+                    is_register_used[instr.dest as usize].0 = false;
+                }
             }
             instr.register_allocated = true;
-            result.push(instr);
+
+            // Store temporary registers currently in use
+            if instr.tt == JAL && instr.src1 == 0 {
+                for i in 0..=6 {
+                    if is_register_used[i].0 {
+                        result.push(RiscvInstruction {
+                            tt: SW,
+                            src1: FP,
+                            src2: i as i32,
+                            immediate: -4 - i as i32 * 4,
+                            register_allocated: true,
+                            ..Default::default()
+                        });
+                    }
+                }
+                result.push(instr);
+                for i in 0..=6 {
+                    if is_register_used[i].0 {
+                        result.push(RiscvInstruction {
+                            tt: LW,
+                            dest: i as i32,
+                            src1: FP,
+                            immediate: -4 - i as i32 * 4,
+                            register_allocated: true,
+                            ..Default::default()
+                        });
+                    }
+                }
+            } else {
+                result.push(instr);
+            }
+        }
+
+        for i in 7..is_register_used.len() {
+            if is_register_used[i].1 {
+                result.insert(
+                    1,
+                    RiscvInstruction {
+                        tt: SW,
+                        src1: SP,
+                        src2: i as i32,
+                        immediate: -4 - i as i32 * 4,
+                        register_allocated: true,
+                        ..Default::default()
+                    },
+                );
+                result.insert(
+                    result.len() - 1,
+                    RiscvInstruction {
+                        tt: LW,
+                        dest: i as i32,
+                        src1: SP,
+                        immediate: -4 - i as i32 * 4,
+                        register_allocated: true,
+                        ..Default::default()
+                    },
+                );
+            }
         }
 
         return result;
@@ -1133,7 +1166,9 @@ impl Codegen {
 
     fn get_alloc_stack_offset(&self, ir: &Vec<IrNode>) -> (u32, Vec<StackOffset>) {
         let mut result: Vec<StackOffset> = vec![];
-        let mut current_offset = 0;
+        let mut current_offset = 76;
+        // Leave the space to store the temporary registers before calling functions
+        let mut ssa = 18 * 4;
         let available_sizes = vec![4, 2, 1];
 
         for s in available_sizes {
@@ -1150,21 +1185,18 @@ impl Codegen {
                             name: name.to_string(),
                         });
                         current_offset += s as i32;
+                        ssa += s as i32;
                     }
                 }
             }
         }
 
         // `ra` and `s0` are to be stored in the activation record
-        current_offset += 8;
+        ssa += 8;
 
         // The stack grows by multiple of 16
-        current_offset = if current_offset % 16 == 0 {
-            current_offset
-        } else {
-            current_offset + (16 - current_offset % 16)
-        };
+        ssa = (ssa + 15) & -16;
 
-        return (current_offset as u32, result);
+        return (ssa as u32, result);
     }
 }
