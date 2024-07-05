@@ -703,10 +703,10 @@ impl Codegen {
                             ..Default::default()
                         });
                         in_function.push(RiscvInstruction {
-                            tt: SLT,
+                            tt: SLTI,
                             dest: *dest as i32,
-                            src1: X0,
-                            src2: *dest as i32,
+                            src1: *dest as i32,
+                            immediate: 1 as i32,
                             is_unsigned: true,
                             ..Default::default()
                         });
