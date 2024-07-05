@@ -151,10 +151,9 @@ impl Codegen {
             pre_function.insert(
                 1,
                 RiscvInstruction {
-                    tt: ADDI,
+                    tt: LUI,
                     dest: SP,
-                    src1: X0,
-                    immediate: SP_INIT_VALUE,
+                    immediate: SP_INIT_VALUE >> 12,
                     ..Default::default()
                 },
             );
@@ -245,6 +244,12 @@ impl Codegen {
                         ..Default::default()
                     });
                 }
+                in_function.push(RiscvInstruction {
+                    tt: J,
+                    label_function: i_function as u32,
+                    label: 0,
+                    ..Default::default()
+                });
             }
 
             // An Alloc node might represent the allocation of an array or of a variable. In the
@@ -264,7 +269,7 @@ impl Codegen {
                         tt: SLLI,
                         dest: new_register,
                         src1: *size as i32,
-                        immediate: tt.get_size() as i32,
+                        immediate: tt.get_size() as i32 / 2,
                         ..Default::default()
                     });
                     // Starting from register `vx`, we can obtain the closest upper multiple of 16
@@ -376,18 +381,19 @@ impl Codegen {
             // shift
             Cast(ttd, _, dest, src) => {
                 // Destination register is different from 4
-                if ttd.get_size() != 4 {
-                    // We clear the upper N bits of the register, which are 24 (size == 1) or 16
-                    // (size == 2)
-                    let and_mask = if ttd.get_size() == 1 { 0xff } else { 0xffff };
-                    in_function.push(RiscvInstruction {
-                        tt: ANDI,
-                        dest: *dest as i32,
-                        src1: *src as i32,
-                        immediate: and_mask as i32,
-                        ..Default::default()
-                    });
-                }
+                // We clear the upper N bits of the register, which are 24 (size == 1) or 16 (size == 2)
+                let and_mask = match ttd.get_size() {
+                    1 => 0xff,
+                    2 => 0xffff,
+                    _ => -1,
+                };
+                in_function.push(RiscvInstruction {
+                    tt: ANDI,
+                    dest: *dest as i32,
+                    src1: *src as i32,
+                    immediate: and_mask as i32,
+                    ..Default::default()
+                });
                 // If the destination is signed and different form i32, we shift left until we have
                 // the important bits on the leftmost side, and then shift right signed to adjust
                 // the sign
@@ -422,6 +428,7 @@ impl Codegen {
                 };
                 // Source register is fixed
                 store_instruction.src2 = *src as i32;
+                store_instruction.src1 = *dest as i32;
                 // See if destination comes from the stack
                 for elem in stack_position {
                     if elem.reg == *dest {
@@ -905,7 +912,7 @@ impl Codegen {
     fn remove_load_constant(&self, mut nodes: Vec<RiscvInstruction>) -> Vec<RiscvInstruction> {
         let copy_nodes = nodes.clone();
         nodes.retain(|node| {
-            if node.tt == ADDI {
+            if node.tt == ADDI && node.src1 == X0 && node.dest > 0 {
                 // Keep the register if there is a node having that same register as source
                 for n in &copy_nodes {
                     if n.src1 == node.dest || n.src2 == node.dest {
@@ -979,10 +986,26 @@ impl Codegen {
             result.append(&mut pre_function);
             result.append(&mut in_function);
             if name != "init" {
+                post_function.insert(
+                    0,
+                    RiscvInstruction {
+                        tt: LABEL,
+                        label_function: i_function as u32,
+                        label: 0,
+                        ..Default::default()
+                    },
+                );
                 result.append(&mut post_function);
             }
 
             result = self.remove_load_constant(result);
+
+            // println!("\n---------- PRE ALLOCATION -----------");
+            // for elem in &result {
+            //     print!("{}", elem.to_string());
+            // }
+            // println!("\n---------- POST ALLOCATION -----------");
+            result = self.register_allocation(result);
 
             for elem in &result {
                 print!("{}", elem.to_string());
@@ -994,7 +1017,121 @@ impl Codegen {
         return code;
     }
 
-    pub fn get_alloc_stack_offset(&self, ir: &Vec<IrNode>) -> (u32, Vec<StackOffset>) {
+    fn find_usage_register(&self, instructions: &Vec<RiscvInstruction>, starting_point: u32, target: i32) -> bool {
+        let mut labels_found: Vec<u32> = vec![];
+        let mut labels_to_analyze: Vec<(u32, usize)> = vec![];
+
+        for i in starting_point as usize..instructions.len() {
+            let instr = instructions[i].clone();
+            if instr.tt == LABEL {
+                labels_found.push(instr.label);
+            }
+            if instr.src1 == target || instr.src2 == target {
+                return true;
+            }
+            if instr.label > 0 {
+                labels_to_analyze.push((instr.label, i));
+            }
+        }
+
+        while labels_to_analyze.len() != 0 {
+            let current_label = labels_to_analyze.pop().unwrap();
+            if labels_found.contains(&current_label.0) {
+                continue;
+            }
+            labels_found.push(current_label.0);
+
+            let mut found = false;
+            for i in 0..instructions.len() {
+                let instr = instructions[i].clone();
+                if instr.tt == LABEL && instr.label == current_label.0 {
+                    found = true;
+                    continue;
+                }
+                if !found {
+                    continue;
+                }
+                let instr = instructions[i].clone();
+                if instr.tt == LABEL && instr.label > 0 && labels_found.contains(&instr.label) {
+                    break;
+                }
+                if instr.src1 == target || instr.src2 == target {
+                    return true;
+                }
+                if instr.label > 0 && instr.tt == LABEL {
+                    labels_found.push(instr.label);
+                } else if instr.label > 0 {
+                    labels_to_analyze.push((instr.label, i));
+                }
+            }
+        }
+        return false;
+    }
+
+    fn register_allocation(&self, instructions: Vec<RiscvInstruction>) -> Vec<RiscvInstruction> {
+        let mut result: Vec<RiscvInstruction> = vec![];
+        let mut virtual_register_allocation: HashMap<i32, i32> = HashMap::new();
+        let mut is_register_used: Vec<(bool, bool, i32)> = vec![(false, false, 0); 18];
+
+        for i in 0..instructions.len() {
+            let mut instr = instructions[i].clone();
+            if instr.tt == LABEL {
+                for j in 0..is_register_used.len() {
+                    if is_register_used[j].0 {
+                        if !self.find_usage_register(&instructions, i as u32 + 1, is_register_used[j].2) {
+                            is_register_used[j] = (false, true, 0);
+                        }
+                    }
+                }
+            }
+            if instr.src1 > 0 {
+                let virtual_value = instr.src1;
+                match virtual_register_allocation.get(&virtual_value) {
+                    Some(reg) => instr.src1 = *reg as i32,
+                    None => panic!("Virtual register {} has no associated physical register", instr.src1),
+                }
+                if !self.find_usage_register(&instructions, i as u32 + 1, virtual_value) {
+                    is_register_used[instr.src1 as usize] = (false, true, 0);
+                }
+            }
+            if instr.src2 > 0 {
+                let virtual_value = instr.src2;
+                match virtual_register_allocation.get(&virtual_value) {
+                    Some(reg) => instr.src2 = *reg as i32,
+                    None => panic!("Virtual register {} has no associated physical register", instr.src2),
+                }
+                if !self.find_usage_register(&instructions, i as u32 + 1, virtual_value) {
+                    is_register_used[instr.src2 as usize] = (false, true, 0);
+                }
+            }
+            if instr.dest > 0 {
+                match virtual_register_allocation.get(&instr.dest) {
+                    Some(reg) => instr.dest = *reg as i32,
+                    None => {
+                        let mut register_to_use: i32 = -1;
+                        for i in 0..is_register_used.len() {
+                            if !is_register_used[i].0 {
+                                register_to_use = i as i32;
+                                is_register_used[i] = (true, true, instr.dest);
+                                virtual_register_allocation.insert(instr.dest, register_to_use);
+                                instr.dest = register_to_use;
+                                break;
+                            }
+                        }
+                        if register_to_use == -1 {
+                            panic!("No free registers")
+                        }
+                    }
+                }
+            }
+            instr.register_allocated = true;
+            result.push(instr);
+        }
+
+        return result;
+    }
+
+    fn get_alloc_stack_offset(&self, ir: &Vec<IrNode>) -> (u32, Vec<StackOffset>) {
         let mut result: Vec<StackOffset> = vec![];
         let mut current_offset = 0;
         let available_sizes = vec![4, 2, 1];

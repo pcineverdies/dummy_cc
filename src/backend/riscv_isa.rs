@@ -105,7 +105,7 @@ impl RiscvInstructionType {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct RiscvInstruction {
     pub tt: RiscvInstructionType, // Type of instruction
-    pub dest: i32,                // Destination register
+    pub dest: i32,
     pub src1: i32,
     pub src2: i32,
     pub immediate: i32,
@@ -155,7 +155,11 @@ impl RiscvInstruction {
             -13 => format!("a7"),
             _ => {
                 if allocated {
-                    format!("x{}", reg)
+                    if reg <= 6 {
+                        format!("t{}", reg)
+                    } else {
+                        format!("s{}", reg - 6)
+                    }
                 } else {
                     format!("r{}", reg)
                 }
@@ -203,7 +207,7 @@ impl RiscvInstruction {
             ),
 
             // Arithmetical instruction with two registers as arguments
-            ADD | AND | OR | XOR | SLL | SUB => format!(
+            ADD | AND | OR | XOR | SLL | SUB | MUL => format!(
                 "\t{}\t{}, {}, {}\n",
                 self.tt.to_string(),
                 RiscvInstruction::reg_to_string(self.dest, self.register_allocated),
@@ -213,7 +217,7 @@ impl RiscvInstruction {
 
             // Arithmetical instruction with two registers as arguments and possible unsigned
             // version
-            SLT | DIV | REM | MUL | SRL => {
+            SLT | DIV | REM | SRL => {
                 let mut opcode = format!("\t{}", self.tt.to_string());
                 if self.is_unsigned {
                     opcode += &"u";

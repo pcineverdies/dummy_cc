@@ -199,7 +199,7 @@ impl Lirgen {
     /// Get rid of all the information stored in the IR generator
     fn erase_registers(&mut self) {
         self.current_register = 0;
-        self.current_label = 0;
+        self.current_label = 1;
         self.variable_pointers.clear();
         self.variable_values.clear();
         self.constant_values.clear();
@@ -1240,7 +1240,7 @@ impl Lirgen {
                     false,
                     1,
                     false,
-                    name.tk.get_identifier(),
+                    name_param.clone(),
                 );
 
                 // Save both pointer and value of the veriables
