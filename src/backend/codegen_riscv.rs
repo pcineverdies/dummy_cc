@@ -505,9 +505,12 @@ impl Codegen {
             // Call to a function, which requires to handle the load of the arguments in the proper
             // registers, and possibly handling the extra arguments with the stack
             Call(name, _, arguments, ret) => {
+                // How many extra arguments
                 let extra_arguments: i32 = arguments.len() as i32 - 8;
-                let extra_space: i32 = ((extra_arguments * 4) + 15) & 0xffffff0 as i32;
-                // Move the SP if required
+                // Space required on the stack to store the extra arguments
+                let extra_space: i32 = ((extra_arguments * 4) + 15) & -16;
+
+                // Move the SP if required to add the extra arguments
                 if extra_arguments > 0 {
                     in_function.push(RiscvInstruction {
                         tt: ADDI,
@@ -517,7 +520,9 @@ impl Codegen {
                         ..Default::default()
                     });
                 }
+
                 for i in 0..arguments.len() {
+
                     // For the first 8 arguments, we move them in the register `Ai` (0-indexed)
                     if i < 8 {
                         in_function.push(RiscvInstruction {
@@ -527,7 +532,7 @@ impl Codegen {
                             immediate: 0,
                             ..Default::default()
                         });
-                        // Otherwise, we push them on the stack
+                    // Otherwise, we push them on the stack
                     } else {
                         in_function.push(RiscvInstruction {
                             tt: SW,
@@ -879,33 +884,6 @@ impl Codegen {
         return (in_function, post_function);
     }
 
-    /// Codegen::substitute_argument_registers
-    ///
-    /// The registers associated to the input values of the function should be changed to `ax`
-    ///
-    /// @in [&Vec<RiscvInstruction>]: List of function nodes
-    /// @in [&Vec<TypeWrapper>]: List of arguments to the function
-    /// @return [Vec<RiscvInstruction>]: List of modified functions
-    fn substitute_argument_registers(&self, mut in_function: Vec<RiscvInstruction>, args: &Vec<TypeWrapper>) -> Vec<RiscvInstruction> {
-        // Substitute the values of the argument registers with `ax`
-        // This already takes into account the limitations on the maximum number of arguments
-        for node in &mut in_function {
-            for i in 0..args.len() {
-                if i >= 8 {
-                    break;
-                }
-                if node.src1 == i as i32 + 1 {
-                    node.src1 = A0 - i as i32;
-                }
-                if node.src2 == i as i32 + 1 {
-                    node.src2 = A0 - i as i32;
-                }
-            }
-        }
-
-        return in_function;
-    }
-
     /// Codegen::remove_load_constant
     ///
     /// If a constant was loaded in a register, then the register might be substituted with a
@@ -985,9 +963,6 @@ impl Codegen {
                 post_function = to_add_post;
             }
 
-            // Change the arguments
-            // in_function = self.substitute_argument_registers(in_function, &args);
-
             // Create the functions by using pre_function and in_function
             result.append(&mut pre_function);
             result.append(&mut in_function);
@@ -1006,11 +981,6 @@ impl Codegen {
 
             result = self.remove_load_constant(result);
 
-            // println!("\n---------- PRE ALLOCATION -----------");
-            // for elem in &result {
-            //     print!("{}", elem.to_string());
-            // }
-            // println!("\n---------- POST ALLOCATION -----------");
             result = self.register_allocation(result);
 
             for elem in &result {
@@ -1023,10 +993,31 @@ impl Codegen {
         return code;
     }
 
+    /// Codegen::find_usage_register
+    ///
+    /// Perform a BFS of the CFG to see if a virtual register is used again in the graph.
+    /// This function is called in order to decide whether to de-allocate the physical register
+    /// employed for the virtual register or not. Each time we find a branch or a jump, the piece
+    /// of code starting from the destination label has to be analyzed, since the register might be
+    /// used from that point on. However, if a re-definition of the virtual register is found, then
+    /// there is no need to continue using the register.
+    ///
+    /// @in instructions: [&Vec<RiscvInstruction>]: List of instructions before the allocation of
+    /// registers
+    /// @in starting_point [u32]: Index of the instruction we have to start cover the list
+    /// @in target [i32]: target virtual register
+    /// @result [bool]: whether it is used or not
     fn find_usage_register(&self, instructions: &Vec<RiscvInstruction>, starting_point: u32, target: i32) -> bool {
+        // Labels we have found in the analysis, thus we do not have to cover them again
         let mut labels_found: Vec<u32> = vec![];
-        let mut labels_to_analyze: Vec<(u32, usize)> = vec![];
+        // Labels we still have to analyze
+        let mut labels_to_analyze: Vec<u32> = vec![];
 
+        // Starting from the provided index, cover all the instructions until the end of the
+        // program. If a branch is found, then add the destination label to the labels to be
+        // cover. If a label is found, then add the label to the labels that have been covered. If
+        // the register is re-defined (used as destination) it can be deallocated. If the register
+        // is used as source, it cannot be deallocated
         for i in starting_point as usize..instructions.len() {
             let instr = instructions[i].clone();
             if instr.tt == LABEL {
@@ -1039,92 +1030,141 @@ impl Codegen {
                 return false;
             }
             if instr.label > 0 {
-                labels_to_analyze.push((instr.label, i));
+                labels_to_analyze.push(instr.label);
             }
         }
 
+        // For each label found which should be analyzed, cover all the instructions starting from
+        // that label up to the end of the program.
         while labels_to_analyze.len() != 0 {
             let current_label = labels_to_analyze.pop().unwrap();
-            if labels_found.contains(&current_label.0) {
+            // Do not proceed if the label was already covered
+            if labels_found.contains(&current_label) {
                 continue;
             }
-            labels_found.push(current_label.0);
+            labels_found.push(current_label);
 
-            let mut found = false;
+            let mut label_is_found = false;
+            // For each instruction of the program, cover them. Start the anlaysis of the registers
+            // only if the target label was found (we are not interested in the blocks before)
             for i in 0..instructions.len() {
                 let instr = instructions[i].clone();
-                if instr.tt == LABEL && instr.label == current_label.0 {
-                    found = true;
+                if instr.tt == LABEL && instr.label == current_label {
+                    label_is_found = true;
                     continue;
                 }
-                if !found {
+                if !label_is_found {
                     continue;
                 }
-                let instr = instructions[i].clone();
+                // Break if the label we are in was already found
                 if instr.tt == LABEL && instr.label > 0 && labels_found.contains(&instr.label) {
                     break;
                 }
+                // It can be deallocated if it is found as target
                 if instr.dest == target {
                     return false;
                 }
+                // It cannot be deallocated if it is found as source
                 if instr.src1 == target || instr.src2 == target {
                     return true;
                 }
+                // Add a label to the covered ones
                 if instr.label > 0 && instr.tt == LABEL {
                     labels_found.push(instr.label);
+                // Add a destination label to the ones to be analyzed
                 } else if instr.label > 0 {
-                    labels_to_analyze.push((instr.label, i));
+                    labels_to_analyze.push(instr.label);
                 }
             }
         }
+        // If nothing was found, then the register can be deallocated
         return false;
     }
 
+    /// Codegen::register_allocation
+    ///
+    /// Given a list of instructions, perform the register allocation
+    ///
+    /// @in instructions [Vec<RiscvInstruction>]: List of instructions before allocation
+    /// @result [Vec<RiscvInstruction>]: List of instructions after allocation
     fn register_allocation(&self, instructions: Vec<RiscvInstruction>) -> Vec<RiscvInstruction> {
+        // Result of the allocation
         let mut result: Vec<RiscvInstruction> = vec![];
+        // List of physical registers associated to each virtual register
         let mut virtual_register_allocation: HashMap<i32, i32> = HashMap::new();
+        // Status of each physical register:
+        // .0 -> is the register currently in use or not
+        // .1 -> was the register used at least once
+        // .2 -> which virtual register it is currently storing
         let mut is_register_used: Vec<(bool, bool, i32)> = vec![(false, false, 0); 18];
 
+        // Cover each instruction in order
         for i in 0..instructions.len() {
             let mut instr = instructions[i].clone();
+
+            // If the instruction is a label, we are done with a node in the CFG. For this reason,
+            // we can cover all the allocated registers and check whether they are still required
+            // (because their virtual register is in the LIVEOUT of the block) or not.
             if instr.tt == LABEL {
+                // For each physical register
                 for j in 0..is_register_used.len() {
+                    // If we are using it
                     if is_register_used[j].0 {
+                        // Deallocate if the virtual register it is employing will not be used
+                        // afterwards
                         if !self.find_usage_register(&instructions, i as u32 + 1, is_register_used[j].2) {
                             is_register_used[j].0 = false;
                         }
                     }
                 }
             }
+
+            // If the instruction has src1
             if instr.src1 > 0 {
                 let virtual_value = instr.src1;
+                // Since the register are initialized before their usage, we expect a physical
+                // register to be already associated to the virtual register. If not, there is an
+                // error
                 match virtual_register_allocation.get(&virtual_value) {
                     Some(reg) => instr.src1 = *reg as i32,
                     None => panic!("Virtual register {} has no associated physical register", instr.src1),
                 }
+                // Deallocate if the virtual register it is employing will not be used
+                // afterwards
                 if !self.find_usage_register(&instructions, i as u32 + 1, virtual_value) {
                     is_register_used[instr.src1 as usize].0 = false;
                 }
             }
+            // If the instruction has src2
             if instr.src2 > 0 {
                 let virtual_value = instr.src2;
+                // Since the register are initialized before their usage, we expect a physical
+                // register to be already associated to the virtual register. If not, there is an
+                // error
                 match virtual_register_allocation.get(&virtual_value) {
                     Some(reg) => instr.src2 = *reg as i32,
                     None => panic!("Virtual register {} has no associated physical register", instr.src2),
                 }
+                // Deallocate if the virtual register it is employing will not be used
+                // afterwards
                 if !self.find_usage_register(&instructions, i as u32 + 1, virtual_value) {
                     is_register_used[instr.src2 as usize].0 = false;
                 }
             }
+            // If the instruction has a destination register
             if instr.dest > 0 {
                 let virtual_value = instr.dest;
                 match virtual_register_allocation.get(&instr.dest) {
+                    // It might happen that the destination register was used before as source. In that
+                    // case, reuse the same physical register.
                     Some(reg) => {
                         instr.dest = *reg as i32;
                     }
+                    // Otherwise, allocate a new register
                     None => {
                         let mut register_to_use: i32 = -1;
                         for i in 0..is_register_used.len() {
+                            // If register `i` is currently free, use it
                             if !is_register_used[i].0 {
                                 register_to_use = i as i32;
                                 is_register_used[i] = (true, true, instr.dest);
@@ -1133,18 +1173,23 @@ impl Codegen {
                                 break;
                             }
                         }
+                        // Currently, spill of registers is not implemented
                         if register_to_use == -1 {
                             panic!("no free registers");
                         }
                     }
                 }
+                // Deallocate the register if not used afterwards
                 if !self.find_usage_register(&instructions, i as u32 + 1, virtual_value) {
                     is_register_used[instr.dest as usize].0 = false;
                 }
             }
+            // The instruction has its registers allocated
             instr.register_allocated = true;
 
-            // Store temporary registers currently in use
+            // If we are handling a CALL instruction, we need to store in the activation record of
+            // the function the registers `t0..t6` which are currently in use, since the caller is
+            // in charge of storing them
             if instr.tt == JAL && instr.src1 == 0 {
                 for i in 0..=6 {
                     if is_register_used[i].0 {
@@ -1159,6 +1204,7 @@ impl Codegen {
                     }
                 }
                 result.push(instr);
+                // Afterwards, we load them back
                 for i in 0..=6 {
                     if is_register_used[i].0 {
                         result.push(RiscvInstruction {
@@ -1176,10 +1222,14 @@ impl Codegen {
             }
         }
 
+        // If some of the `s` registers are used in the function, we have to store them in the
+        // activation record of the function in the `pre_function` block. This is required as,
+        // according to the ABI, the callee is the one saving those registers
         for i in 7..is_register_used.len() {
             if is_register_used[i].1 {
+                // Save them in the `pre_function`
                 result.insert(
-                    1,
+                    1,      // After the function label
                     RiscvInstruction {
                         tt: SW,
                         src1: SP,
@@ -1189,6 +1239,7 @@ impl Codegen {
                         ..Default::default()
                     },
                 );
+                // Restore them before returning from the function
                 result.insert(
                     result.len() - 1,
                     RiscvInstruction {
@@ -1206,18 +1257,28 @@ impl Codegen {
         return result;
     }
 
+    /// Codegen::get_alloc_stack_offset
+    ///
+    /// Given a function, reserve the space for all the declarations which are not about arrays.
+    /// Together with those, the space to store registers (both temporary and non-temporary), ra
+    /// and s0 has to be reserved as well.
+    ///
+    /// @in [&Vec<IrNode>]: nodes of the function
+    /// @result [(u32, Vec<StackOffset>)]: Size of the activation record, together with the offset
+    /// of each variable on the stack with respect to `s0`
     fn get_alloc_stack_offset(&self, ir: &Vec<IrNode>) -> (u32, Vec<StackOffset>) {
         let mut result: Vec<StackOffset> = vec![];
         let mut current_offset = 76;
-        // Leave the space to store the temporary registers before calling functions
-        let mut ssa = 18 * 4;
+        // Leave the space to store the registers (18 of them), `ra` and `s0`
+        let mut ssa = 20 * 4;
+        // First cover all the variables of size 4, then 2 and 1.
         let available_sizes = vec![4, 2, 1];
 
         for s in available_sizes {
             // Look for elements of size `s` (in 4, 2 and 1) and allocate them
             for node in ir {
                 if let Alloc(tt, register, _, _, _, from_register, name) = node {
-                    // Allocation of the arrays happen on top of the stack, not in the activation
+                    // Allocation of the arrays happens on top of the stack, not in the activation
                     // record
                     if tt.get_size() == s && !from_register {
                         result.push(StackOffset {
@@ -1226,15 +1287,15 @@ impl Codegen {
                             offset: -current_offset,
                             name: name.to_string(),
                         });
+                        // Compute the offset of the next variable to be used (it is always aligned
+                        // to the size of the variable, since we cover them in order)
                         current_offset += s as i32;
+                        // Increment the allocation record size
                         ssa += s as i32;
                     }
                 }
             }
         }
-
-        // `ra` and `s0` are to be stored in the activation record
-        ssa += 8;
 
         // The stack grows by multiple of 16
         ssa = (ssa + 15) & -16;
