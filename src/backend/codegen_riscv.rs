@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::ast::type_wrapper::TypeWrapper;
-use crate::backend::riscv_isa::{RiscvInstruction, RiscvInstructionType, A0, FP, GP, RA, SP, X0};
+use crate::backend::riscv_isa::{RiscvInstruction, RiscvInstructionType, A0, FP, GP, RA, SP, TP, X0};
 use crate::lexer::token::Operator;
 use crate::lirgen::irnode::{CompareType, IrNode};
 
@@ -175,11 +175,22 @@ impl Codegen {
                     ..Default::default()
                 },
             );
+            pre_function.insert(
+                1,
+                RiscvInstruction {
+                    tt: LUI,
+                    dest: TP,
+                    immediate: SP_INIT_VALUE >> 13,
+                    comment: format!("# Initialize TP"),
+                    ..Default::default()
+                },
+            );
             pre_function.push(RiscvInstruction {
                 tt: ADDI,
                 dest: GP,
                 src1: FP,
                 immediate: 0,
+                comment: format!("# Initialize GP"),
                 ..Default::default()
             });
         }
@@ -373,7 +384,7 @@ impl Codegen {
                             dest: *dest as i32,
                             src1: FP,
                             immediate: elem.offset as i32,
-                            comment: format!("# Initialize value with address"),
+                            comment: format!("# Initialize variable {}", elem.name),
                             ..Default::default()
                         });
                         return (in_function, post_function);
@@ -382,7 +393,7 @@ impl Codegen {
                 // If the register is not found on the stack, then use the pointer register to
                 // perform the store, with offset 0
                 store_instruction.src1 = *dest as i32;
-                store_instruction.comment = format!("# Initialize value on stack");
+                store_instruction.comment = format!("# Initialize value using pointer");
                 in_function.push(store_instruction);
             }
             MovC(_, dest, src) => {
@@ -407,7 +418,7 @@ impl Codegen {
                     dest: *dest as i32,
                     src1: X0,
                     immediate: (src % (1 << 12)) as i32,
-                    comment: format!("# Load constant in register"),
+                    comment: format!("# Load constant {} in register", src),
                     ..Default::default()
                 });
             }
@@ -477,7 +488,7 @@ impl Codegen {
                     if elem.reg == *dest {
                         store_instruction.src1 = FP;
                         store_instruction.immediate = elem.offset;
-                        store_instruction.comment = format!("# Store on stack");
+                        store_instruction.comment = format!("# Store value of variable {}", elem.name);
                         in_function.push(store_instruction);
                         return (in_function, post_function);
                     }
@@ -516,7 +527,7 @@ impl Codegen {
                     if elem.reg == *src {
                         load_instruction.src1 = FP;
                         load_instruction.immediate = elem.offset as i32;
-                        load_instruction.comment = format!("# Load from stack");
+                        load_instruction.comment = format!("# Load variable {} from stack", elem.name);
                         in_function.push(load_instruction);
                         return (in_function, post_function);
                     }
@@ -1126,10 +1137,14 @@ impl Codegen {
         // .0 -> is the register currently in use or not
         // .1 -> was the register used at least once
         // .2 -> which virtual register it is currently storing
-        let mut is_register_used: Vec<(bool, bool, i32)> = vec![(false, false, 0); 18];
+        let mut is_register_used: Vec<(bool, bool, i32)> = vec![(false, false, 0); 16];
+        let mut current_offset_tp = 0;
+        let mut offset_to_use_tp = 0;
+        let mut virtual_registers_in_memory: HashMap<i32, i32> = HashMap::new();
 
         // Cover each instruction in order
         for i in 0..instructions.len() {
+            let mut save_on_tp = false;
             let mut instr = instructions[i].clone();
 
             // If the instruction is a label, we are done with a node in the CFG. For this reason,
@@ -1152,33 +1167,67 @@ impl Codegen {
             // If the instruction has src1
             if instr.src1 > 0 {
                 let virtual_value = instr.src1;
-                // Since the register are initialized before their usage, we expect a physical
-                // register to be already associated to the virtual register. If not, there is an
-                // error
-                match virtual_register_allocation.get(&virtual_value) {
-                    Some(reg) => instr.src1 = *reg as i32,
-                    None => panic!("Virtual register {} has no associated physical register", instr.src1),
-                }
-                // Deallocate if the virtual register it is employing will not be used
-                // afterwards
-                if !self.find_usage_register(&instructions, i as u32 + 1, virtual_value) {
-                    is_register_used[instr.src1 as usize].0 = false;
+                match virtual_registers_in_memory.get(&virtual_value) {
+                    // Get virtual register from TP stack and put it in s10
+                    Some(offset) => {
+                        instr.src1 = 16;
+                        result.push(RiscvInstruction {
+                            tt: LW,
+                            dest: 16,
+                            src1: TP,
+                            immediate: *offset,
+                            register_allocated: true,
+                            comment: format!("# virtual register {} is stored on stack", virtual_value),
+                            ..Default::default()
+                        });
+                    }
+                    None => {
+                        // Since the register are initialized before their usage, we expect a physical
+                        // register to be already associated to the virtual register. If not, there is an
+                        // error
+                        match virtual_register_allocation.get(&virtual_value) {
+                            Some(reg) => instr.src1 = *reg as i32,
+                            None => panic!("Virtual register {} has no associated physical register", instr.src1),
+                        }
+                        // Deallocate if the virtual register it is employing will not be used
+                        // afterwards
+                        if !self.find_usage_register(&instructions, i as u32 + 1, virtual_value) {
+                            is_register_used[instr.src1 as usize].0 = false;
+                        }
+                    }
                 }
             }
             // If the instruction has src2
             if instr.src2 > 0 {
                 let virtual_value = instr.src2;
-                // Since the register are initialized before their usage, we expect a physical
-                // register to be already associated to the virtual register. If not, there is an
-                // error
-                match virtual_register_allocation.get(&virtual_value) {
-                    Some(reg) => instr.src2 = *reg as i32,
-                    None => panic!("Virtual register {} has no associated physical register", instr.src2),
-                }
-                // Deallocate if the virtual register it is employing will not be used
-                // afterwards
-                if !self.find_usage_register(&instructions, i as u32 + 1, virtual_value) {
-                    is_register_used[instr.src2 as usize].0 = false;
+                match virtual_registers_in_memory.get(&virtual_value) {
+                    // Get virtual register from TP stack and put it in s11
+                    Some(offset) => {
+                        instr.src2 = 17;
+                        result.push(RiscvInstruction {
+                            tt: LW,
+                            dest: 17,
+                            src1: TP,
+                            immediate: *offset,
+                            register_allocated: true,
+                            comment: format!("# virtual register {} is stored on stack", virtual_value),
+                            ..Default::default()
+                        });
+                    }
+                    None => {
+                        // Since the register are initialized before their usage, we expect a physical
+                        // register to be already associated to the virtual register. If not, there is an
+                        // error
+                        match virtual_register_allocation.get(&virtual_value) {
+                            Some(reg) => instr.src2 = *reg as i32,
+                            None => panic!("Virtual register {} has no associated physical register", instr.src2),
+                        }
+                        // Deallocate if the virtual register it is employing will not be used
+                        // afterwards
+                        if !self.find_usage_register(&instructions, i as u32 + 1, virtual_value) {
+                            is_register_used[instr.src2 as usize].0 = false;
+                        }
+                    }
                 }
             }
             // If the instruction has a destination register
@@ -1189,6 +1238,10 @@ impl Codegen {
                     // case, reuse the same physical register.
                     Some(reg) => {
                         instr.dest = *reg as i32;
+                        // Deallocate the register if not used afterwards
+                        if !self.find_usage_register(&instructions, i as u32 + 1, virtual_value) {
+                            is_register_used[instr.dest as usize].0 = false;
+                        }
                     }
                     // Otherwise, allocate a new register
                     None => {
@@ -1203,15 +1256,22 @@ impl Codegen {
                                 break;
                             }
                         }
-                        // Currently, spill of registers is not implemented
+                        // Allocate virtual registers on the TP stack
                         if register_to_use == -1 {
-                            panic!("no free registers");
+                            save_on_tp = true;
+                            instr.dest = 16;
+                            match virtual_registers_in_memory.get(&virtual_value) {
+                                Some(offset) => {
+                                    offset_to_use_tp = *offset;
+                                }
+                                None => {
+                                    virtual_registers_in_memory.insert(virtual_value, current_offset_tp);
+                                    offset_to_use_tp = current_offset_tp;
+                                    current_offset_tp -= 4;
+                                }
+                            }
                         }
                     }
-                }
-                // Deallocate the register if not used afterwards
-                if !self.find_usage_register(&instructions, i as u32 + 1, virtual_value) {
-                    is_register_used[instr.dest as usize].0 = false;
                 }
             }
             // The instruction has its registers allocated
@@ -1252,6 +1312,17 @@ impl Codegen {
             } else {
                 result.push(instr);
             }
+            if save_on_tp {
+                result.push(RiscvInstruction {
+                    tt: SW,
+                    src1: TP,
+                    src2: 16,
+                    immediate: offset_to_use_tp,
+                    register_allocated: true,
+                    comment: format!("# virtual register is to be stored on stack"),
+                    ..Default::default()
+                });
+            }
         }
 
         // If some of the `s` registers are used in the function, we have to store them in the
@@ -1268,7 +1339,7 @@ impl Codegen {
                         src2: i as i32,
                         immediate: -4 - i as i32 * 4,
                         register_allocated: true,
-                        comment: format!("# Restore register on stack as it must be preserved"),
+                        comment: format!("# Store register on stack as it must be preserved"),
                         ..Default::default()
                     },
                 );
@@ -1286,6 +1357,85 @@ impl Codegen {
                     },
                 );
             }
+        }
+        // Save s10 and s11 if some registers have been spilled to memeory
+        if current_offset_tp != 0 {
+            result.insert(
+                1, // After the function label
+                RiscvInstruction {
+                    tt: SW,
+                    src1: SP,
+                    src2: 16 as i32,
+                    immediate: -4 - 16 as i32 * 4,
+                    register_allocated: true,
+                    comment: format!("# Store register on stack as it must be preserved"),
+                    ..Default::default()
+                },
+            );
+            // Restore them before returning from the function
+            result.insert(
+                result.len() - 1,
+                RiscvInstruction {
+                    tt: LW,
+                    dest: 16 as i32,
+                    src1: SP,
+                    immediate: -4 - 16 as i32 * 4,
+                    register_allocated: true,
+                    comment: format!("# Restore register from stack"),
+                    ..Default::default()
+                },
+            );
+            result.insert(
+                1, // After the function label
+                RiscvInstruction {
+                    tt: SW,
+                    src1: SP,
+                    src2: 17 as i32,
+                    immediate: -4 - 17 as i32 * 4,
+                    register_allocated: true,
+                    comment: format!("# Store register on stack as it must be preserved"),
+                    ..Default::default()
+                },
+            );
+            // Restore them before returning from the function
+            result.insert(
+                result.len() - 1,
+                RiscvInstruction {
+                    tt: LW,
+                    dest: 17 as i32,
+                    src1: SP,
+                    immediate: -4 - 17 as i32 * 4,
+                    register_allocated: true,
+                    comment: format!("# Restore register from stack"),
+                    ..Default::default()
+                },
+            );
+            // Modify TP
+            result.insert(
+                1, // After the function label
+                RiscvInstruction {
+                    tt: ADDI,
+                    dest: TP,
+                    src1: TP,
+                    immediate: current_offset_tp,
+                    register_allocated: true,
+                    comment: format!("# Space for virtual registers on TP stack"),
+                    ..Default::default()
+                },
+            );
+            // Modify TP back
+            result.insert(
+                result.len() - 1,
+                RiscvInstruction {
+                    tt: ADDI,
+                    dest: TP,
+                    src1: TP,
+                    immediate: -current_offset_tp,
+                    register_allocated: true,
+                    comment: format!("# Restore space for virtual registers on TP stack"),
+                    ..Default::default()
+                },
+            );
         }
 
         return result;

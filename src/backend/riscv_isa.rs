@@ -121,6 +121,7 @@ pub const GP: i32 = -2; // global pointer
 pub const FP: i32 = -3; // frame pointer
 pub const RA: i32 = -4; // return address
 pub const X0: i32 = -5; // zero constant
+pub const TP: i32 = -30; // used to spill virtual registers
 pub const A0: i32 = -6; // first function argument / return value
                         // as the system is on 32 bits and no value is larger than that, a1 is
                         // never used as return address
@@ -143,6 +144,7 @@ impl RiscvInstruction {
             FP => format!("s0"),
             RA => format!("ra"),
             X0 => format!("x0"),
+            TP => format!("tp"),
             -6 => format!("a0"),
             -7 => format!("a1"),
             -8 => format!("a2"),
