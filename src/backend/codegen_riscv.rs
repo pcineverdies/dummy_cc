@@ -8,6 +8,9 @@ use crate::lirgen::irnode::{CompareType, IrNode};
 use IrNode::*;
 use RiscvInstructionType::*;
 
+/// SP_INIT_VALUE
+///
+/// Initial value of the stack pointer, to be used in the `init` function
 const SP_INIT_VALUE: i32 = 0x00010000;
 
 /// struct StackOffset
@@ -132,8 +135,24 @@ impl Codegen {
         // If the function has more than 8 arguments, the additional arguments are provided on the
         // stack, before the new FP. These instructions load those values in the appropriate
         // virtual registers.
-        if args.len() > 8 {
-            todo!();
+        for i in 0..args.len() {
+            if i < 8 {
+                pre_function.push(RiscvInstruction {
+                    tt: ADD,
+                    dest: i as i32 + 1,
+                    src1: A0 - i as i32,
+                    src2: X0,
+                    ..Default::default()
+                });
+            } else {
+                pre_function.push(RiscvInstruction {
+                    tt: LW,
+                    dest: i as i32 + 1,
+                    src1: FP,
+                    immediate: (i as i32 - 8) * 4,
+                    ..Default::default()
+                });
+            }
         }
 
         // If we hare handling the init function, we have to initialize the stack pointer to a
@@ -488,6 +507,16 @@ impl Codegen {
             Call(name, _, arguments, ret) => {
                 let extra_arguments: i32 = arguments.len() as i32 - 8;
                 let extra_space: i32 = ((extra_arguments * 4) + 15) & 0xffffff0 as i32;
+                // Move the SP if required
+                if extra_arguments > 0 {
+                    in_function.push(RiscvInstruction {
+                        tt: ADDI,
+                        dest: SP,
+                        src1: SP,
+                        immediate: -extra_space,
+                        ..Default::default()
+                    });
+                }
                 for i in 0..arguments.len() {
                     // For the first 8 arguments, we move them in the register `Ai` (0-indexed)
                     if i < 8 {
@@ -498,14 +527,16 @@ impl Codegen {
                             immediate: 0,
                             ..Default::default()
                         });
-                    // Otherwise, we push them on the stack
+                        // Otherwise, we push them on the stack
                     } else {
-                        todo!();
+                        in_function.push(RiscvInstruction {
+                            tt: SW,
+                            src1: SP,
+                            src2: arguments[i] as i32,
+                            immediate: (i as i32 - 8) * 4,
+                            ..Default::default()
+                        });
                     }
-                }
-                // Move the SP if required
-                if extra_arguments > 0 {
-                    todo!();
                 }
                 // Add a jump to the function
                 in_function.push(RiscvInstruction {
@@ -526,7 +557,13 @@ impl Codegen {
                 }
                 // Put the stack value back
                 if extra_arguments > 0 {
-                    todo!();
+                    in_function.push(RiscvInstruction {
+                        tt: ADDI,
+                        dest: SP,
+                        src1: SP,
+                        immediate: extra_space,
+                        ..Default::default()
+                    });
                 }
             }
             // Handle a branch
@@ -949,7 +986,7 @@ impl Codegen {
             }
 
             // Change the arguments
-            in_function = self.substitute_argument_registers(in_function, &args);
+            // in_function = self.substitute_argument_registers(in_function, &args);
 
             // Create the functions by using pre_function and in_function
             result.append(&mut pre_function);
