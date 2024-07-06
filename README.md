@@ -42,7 +42,8 @@ Usage: dummy_cc [OPTIONS] --file-name <FILE_NAME>
 
 Options:
   -f, --file-name <FILE_NAME>  Path of the file to compile
-  -o, --opt <OPT>              Required level of optimization [default: 0]
+  -o, --o <O>                  Path of the result file [default: out.asm]
+      --opt <OPT>              Required level of optimization [default: 0]
       --print-ast              Show result of parsing
       --print-lir              Show result of lirgen
   -a, --arch <ARCH>            Target architecture [default: rv32im] [possible values: rv32im]

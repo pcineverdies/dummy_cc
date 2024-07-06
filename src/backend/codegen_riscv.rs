@@ -522,7 +522,6 @@ impl Codegen {
                 }
 
                 for i in 0..arguments.len() {
-
                     // For the first 8 arguments, we move them in the register `Ai` (0-indexed)
                     if i < 8 {
                         in_function.push(RiscvInstruction {
@@ -983,10 +982,6 @@ impl Codegen {
 
             result = self.register_allocation(result);
 
-            for elem in &result {
-                print!("{}", elem.to_string());
-            }
-
             code.append(&mut result);
         }
 
@@ -1229,7 +1224,7 @@ impl Codegen {
             if is_register_used[i].1 {
                 // Save them in the `pre_function`
                 result.insert(
-                    1,      // After the function label
+                    1, // After the function label
                     RiscvInstruction {
                         tt: SW,
                         src1: SP,

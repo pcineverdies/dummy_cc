@@ -4,6 +4,9 @@ mod lexer;
 mod lirgen;
 mod optimizer;
 mod parser;
+use std::fs;
+use std::io::prelude::*;
+
 use backend::codegen_riscv::Codegen as cg_riscv;
 use clap::Parser as ClapParser;
 use lexer::lexer::Lexer;
@@ -18,8 +21,12 @@ struct Cli {
     #[arg(short, long)]
     file_name: String,
 
+    /// Path of the result file
+    #[arg(short, long, default_value_t = format!("out.asm"))]
+    o: String,
+
     /// Required level of optimization
-    #[arg(short, long, default_value_t = 0, value_parser = clap::value_parser!(u32).range(0..=2))]
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u32).range(0..=2))]
     opt: u32,
 
     /// Show result of parsing
@@ -35,20 +42,20 @@ struct Cli {
     arch: String,
 }
 
-fn main() {
+fn main() -> std::io::Result<()> {
     let args = Cli::parse();
 
     let mut l = Lexer::new(args.file_name.clone(), true).unwrap();
     let tokens = l.tokenize();
     if tokens.is_none() {
-        return;
+        return Ok(());
     }
 
     let mut p = Parser::new(tokens.unwrap(), args.file_name.clone());
     let ast_wrapped = p.parse();
 
     if ast_wrapped.is_none() {
-        return;
+        return Ok(());
     }
     let ast = ast_wrapped.unwrap();
 
@@ -68,11 +75,17 @@ fn main() {
         println!("{}", ir.to_string());
     }
 
-    let _code = match args.arch.as_str() {
+    let code = match args.arch.as_str() {
         "rv32im" => {
             let mut codegen = cg_riscv::new();
-            codegen.generate_code(&ir);
+            codegen.generate_code(&ir)
         }
         _ => panic!("Unsupported architecture: {}", args.arch),
     };
+
+    let mut outpfile = fs::File::create(args.o)?;
+    for e in code {
+        outpfile.write_all(e.to_string().as_bytes())?;
+    }
+    return Ok(());
 }
