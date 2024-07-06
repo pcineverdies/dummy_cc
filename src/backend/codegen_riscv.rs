@@ -101,6 +101,7 @@ impl Codegen {
             dest: SP,
             src1: SP,
             immediate: -(ssa as i32),
+            comment: format!("# Activation record space"),
             ..Default::default()
         });
 
@@ -110,6 +111,7 @@ impl Codegen {
             src1: SP,
             src2: RA,
             immediate: 0 as i32,
+            comment: format!("# Store RA"),
             ..Default::default()
         });
 
@@ -119,6 +121,7 @@ impl Codegen {
             src1: SP,
             src2: FP,
             immediate: 4 as i32,
+            comment: format!("# Store S0"),
             ..Default::default()
         });
 
@@ -129,6 +132,7 @@ impl Codegen {
             dest: FP,
             src1: SP,
             immediate: (ssa as i32),
+            comment: format!("# Previous value of SP is new S0"),
             ..Default::default()
         });
 
@@ -142,6 +146,7 @@ impl Codegen {
                     dest: i as i32 + 1,
                     src1: A0 - i as i32,
                     src2: X0,
+                    comment: format!("# Load argument {} from register", i + 1),
                     ..Default::default()
                 });
             } else {
@@ -150,6 +155,7 @@ impl Codegen {
                     dest: i as i32 + 1,
                     src1: FP,
                     immediate: (i as i32 - 8) * 4,
+                    comment: format!("# Load argument {} from stack", i + 1),
                     ..Default::default()
                 });
             }
@@ -165,6 +171,7 @@ impl Codegen {
                     tt: LUI,
                     dest: SP,
                     immediate: SP_INIT_VALUE >> 12,
+                    comment: format!("# Initialize SP"),
                     ..Default::default()
                 },
             );
@@ -196,6 +203,7 @@ impl Codegen {
             dest: RA,
             src1: SP,
             immediate: 0 as i32,
+            comment: format!("# Restore return address"),
             ..Default::default()
         });
 
@@ -205,6 +213,7 @@ impl Codegen {
             dest: FP,
             src1: SP,
             immediate: 4 as i32,
+            comment: format!("# Restore s0"),
             ..Default::default()
         });
 
@@ -214,6 +223,7 @@ impl Codegen {
             dest: SP,
             src1: SP,
             immediate: (ssa as i32),
+            comment: format!("# Restore SP"),
             ..Default::default()
         });
 
@@ -281,6 +291,7 @@ impl Codegen {
                         dest: new_register,
                         src1: *size as i32,
                         immediate: tt.get_size() as i32 / 2,
+                        comment: format!("# Size of array * Size of array type"),
                         ..Default::default()
                     });
                     // Starting from register `vx`, we can obtain the closest upper multiple of 16
@@ -297,6 +308,7 @@ impl Codegen {
                         dest: new_register,
                         src1: new_register,
                         immediate: (0xfffffff0 as u32) as i32,
+                        comment: format!("# SP is always a multiple of 16"),
                         ..Default::default()
                     });
                     // Space for the vector is created
@@ -305,6 +317,7 @@ impl Codegen {
                         dest: SP,
                         src1: SP,
                         src2: new_register,
+                        comment: format!("# Space for the vector on the stack"),
                         ..Default::default()
                     });
                     // We store the pointer to the vector in the `dest` register
@@ -313,6 +326,7 @@ impl Codegen {
                         dest: *dest as i32,
                         src1: SP,
                         immediate: 0,
+                        comment: format!("# Store vector pointer"),
                         ..Default::default()
                     });
                     // At the beginning of the epilogue, the SP has to be increased again in order
@@ -324,6 +338,7 @@ impl Codegen {
                             dest: SP,
                             src1: SP,
                             src2: new_register,
+                            comment: format!("# Get rid of space allocated for vector"),
                             ..Default::default()
                         },
                     );
@@ -358,6 +373,7 @@ impl Codegen {
                             dest: *dest as i32,
                             src1: FP,
                             immediate: elem.offset as i32,
+                            comment: format!("# Initialize value with address"),
                             ..Default::default()
                         });
                         return (in_function, post_function);
@@ -366,6 +382,7 @@ impl Codegen {
                 // If the register is not found on the stack, then use the pointer register to
                 // perform the store, with offset 0
                 store_instruction.src1 = *dest as i32;
+                store_instruction.comment = format!("# Initialize value on stack");
                 in_function.push(store_instruction);
             }
             MovC(_, dest, src) => {
@@ -375,6 +392,7 @@ impl Codegen {
                         tt: LUI,
                         dest: *dest as i32,
                         immediate: (src >> 12) as i32,
+                        comment: format!("# Constant larger than 2**12"),
                         ..Default::default()
                     });
                 } else {
@@ -389,6 +407,7 @@ impl Codegen {
                     dest: *dest as i32,
                     src1: X0,
                     immediate: (src % (1 << 12)) as i32,
+                    comment: format!("# Load constant in register"),
                     ..Default::default()
                 });
             }
@@ -397,7 +416,7 @@ impl Codegen {
             // possibly doing a signed extension. The first operation can be done with a bit mask.
             // The second operation can be done with a series of a left shift and signed right
             // shift
-            Cast(ttd, _, dest, src) => {
+            Cast(ttd, tts, dest, src) => {
                 // Destination register is different from 4
                 // We clear the upper N bits of the register, which are 24 (size == 1) or 16 (size == 2)
                 let and_mask = match ttd.get_size() {
@@ -410,6 +429,11 @@ impl Codegen {
                     dest: *dest as i32,
                     src1: *src as i32,
                     immediate: and_mask as i32,
+                    comment: format!(
+                        "# Clear upper bits of register due to cast from size {} to {}",
+                        tts.get_size(),
+                        ttd.get_size()
+                    ),
                     ..Default::default()
                 });
                 // If the destination is signed and different form i32, we shift left until we have
@@ -430,6 +454,7 @@ impl Codegen {
                         src1: *dest as i32,
                         immediate: shift_size as i32,
                         is_unsigned: false,
+                        comment: format!("# Sign extension"),
                         ..Default::default()
                     });
                 }
@@ -452,10 +477,12 @@ impl Codegen {
                     if elem.reg == *dest {
                         store_instruction.src1 = FP;
                         store_instruction.immediate = elem.offset;
+                        store_instruction.comment = format!("# Store on stack");
                         in_function.push(store_instruction);
                         return (in_function, post_function);
                     }
                 }
+                store_instruction.comment = format!("# Store value");
                 in_function.push(store_instruction);
             }
             // Load address to global variable. They are all referenced from an offset to GP, thus
@@ -470,6 +497,7 @@ impl Codegen {
                         load_instruction.immediate = elem.offset as i32;
                     }
                 }
+                load_instruction.comment = format!("# Load global pointer");
                 in_function.push(load_instruction);
             }
             // Load having the pointer of the variable to load in a register
@@ -488,10 +516,12 @@ impl Codegen {
                     if elem.reg == *src {
                         load_instruction.src1 = FP;
                         load_instruction.immediate = elem.offset as i32;
+                        load_instruction.comment = format!("# Load from stack");
                         in_function.push(load_instruction);
                         return (in_function, post_function);
                     }
                 }
+                load_instruction.comment = format!("# Load from register");
                 load_instruction.src1 = *src as i32;
                 in_function.push(load_instruction);
             }
@@ -517,6 +547,7 @@ impl Codegen {
                         dest: SP,
                         src1: SP,
                         immediate: -extra_space,
+                        comment: format!("# Extra space required for arguments on stack"),
                         ..Default::default()
                     });
                 }
@@ -529,6 +560,7 @@ impl Codegen {
                             dest: A0 - i as i32,
                             src1: arguments[i] as i32,
                             immediate: 0,
+                            comment: format!("# Load argument"),
                             ..Default::default()
                         });
                     // Otherwise, we push them on the stack
@@ -538,6 +570,7 @@ impl Codegen {
                             src1: SP,
                             src2: arguments[i] as i32,
                             immediate: (i as i32 - 8) * 4,
+                            comment: format!("# Move extra arguments on the stack"),
                             ..Default::default()
                         });
                     }
@@ -556,6 +589,7 @@ impl Codegen {
                         dest: *ret as i32,
                         src1: A0,
                         immediate: 0,
+                        comment: format!("# Move return value from functino"),
                         ..Default::default()
                     });
                 }
@@ -566,6 +600,7 @@ impl Codegen {
                         dest: SP,
                         src1: SP,
                         immediate: extra_space,
+                        comment: format!("# Get rid of extra space required for arguments on stack"),
                         ..Default::default()
                     });
                 }
@@ -1194,6 +1229,7 @@ impl Codegen {
                             src2: i as i32,
                             immediate: -4 - i as i32 * 4,
                             register_allocated: true,
+                            comment: format!("# Save register on stack as it must be preserved"),
                             ..Default::default()
                         });
                     }
@@ -1208,6 +1244,7 @@ impl Codegen {
                             src1: FP,
                             immediate: -4 - i as i32 * 4,
                             register_allocated: true,
+                            comment: format!("# Restore register from stack"),
                             ..Default::default()
                         });
                     }
@@ -1231,6 +1268,7 @@ impl Codegen {
                         src2: i as i32,
                         immediate: -4 - i as i32 * 4,
                         register_allocated: true,
+                        comment: format!("# Restore register on stack as it must be preserved"),
                         ..Default::default()
                     },
                 );
@@ -1243,6 +1281,7 @@ impl Codegen {
                         src1: SP,
                         immediate: -4 - i as i32 * 4,
                         register_allocated: true,
+                        comment: format!("# Restore register from stack"),
                         ..Default::default()
                     },
                 );

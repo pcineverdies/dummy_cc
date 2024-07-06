@@ -3,9 +3,6 @@
 /// List of all the instructions available on RV32IM, plus some pseudo instructions useful for
 /// prototyping purposes. The instruction AUIPC is not included in the list, as it was not used in
 /// the codegen
-///
-/// 6 5
-/// 5 7
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum RiscvInstructionType {
     ADDI,  // add immediate
@@ -114,6 +111,7 @@ pub struct RiscvInstruction {
     pub is_unsigned: bool,
     pub name: String,
     pub register_allocated: bool,
+    pub comment: String,
 }
 
 /// Set of constants used to represent some specific registers of the ISA. These registers are to
@@ -176,11 +174,12 @@ impl RiscvInstruction {
         match self.tt {
             // Arithmetical instructions with immediate as argument
             ADDI | ANDI | ORI | XORI | SLLI => format!(
-                "\t{}\t{}, {}, {}\n",
+                "\t{}\t{}, {}, {}\t{}\n",
                 self.tt.to_string(),
                 RiscvInstruction::reg_to_string(self.dest, self.register_allocated),
                 RiscvInstruction::reg_to_string(self.src1, self.register_allocated),
-                self.immediate
+                self.immediate,
+                self.comment
             ),
 
             // Arithmetical instructions with immediate as argument and possible unsigned version
@@ -190,11 +189,12 @@ impl RiscvInstruction {
                     opcode += &"u";
                 }
                 format!(
-                    "{}\t{}, {}, {}\n",
+                    "{}\t{}, {}, {}\t{}\n",
                     opcode,
                     RiscvInstruction::reg_to_string(self.dest, self.register_allocated),
                     RiscvInstruction::reg_to_string(self.src1, self.register_allocated),
-                    self.immediate
+                    self.immediate,
+                    self.comment
                 )
             }
 
@@ -206,29 +206,32 @@ impl RiscvInstruction {
                     opcode += &"srai";
                 }
                 format!(
-                    "{}\t{}, {}, {}\n",
+                    "{}\t{}, {}, {}\t{}\n",
                     opcode,
                     RiscvInstruction::reg_to_string(self.dest, self.register_allocated),
                     RiscvInstruction::reg_to_string(self.src1, self.register_allocated),
-                    self.immediate
+                    self.immediate,
+                    self.comment
                 )
             }
 
             // Load upper immediate
             LUI => format!(
-                "\t{}\t{}, {}\n",
+                "\t{}\t{}, {}\t{}\n",
                 self.tt.to_string(),
                 RiscvInstruction::reg_to_string(self.dest, self.register_allocated),
                 self.immediate,
+                self.comment,
             ),
 
             // Arithmetical instruction with two registers as arguments
             ADD | AND | OR | XOR | SLL | SUB | MUL => format!(
-                "\t{}\t{}, {}, {}\n",
+                "\t{}\t{}, {}, {}\t{}\n",
                 self.tt.to_string(),
                 RiscvInstruction::reg_to_string(self.dest, self.register_allocated),
                 RiscvInstruction::reg_to_string(self.src1, self.register_allocated),
-                RiscvInstruction::reg_to_string(self.src2, self.register_allocated)
+                RiscvInstruction::reg_to_string(self.src2, self.register_allocated),
+                self.comment,
             ),
 
             // Arithmetical instruction with two registers as arguments and possible unsigned
@@ -239,43 +242,47 @@ impl RiscvInstruction {
                     opcode += &"u";
                 }
                 format!(
-                    "{}\t{}, {}, {}\n",
+                    "{}\t{}, {}, {}\t{}\n",
                     opcode,
                     RiscvInstruction::reg_to_string(self.dest, self.register_allocated),
                     RiscvInstruction::reg_to_string(self.src1, self.register_allocated),
                     RiscvInstruction::reg_to_string(self.src2, self.register_allocated),
+                    self.comment
                 )
             }
 
             // Jump instruction
-            J => format!("\tjal\tx0, L_{}_{}\n", self.label_function, self.label),
+            J => format!("\tjal\tx0, L_{}_{}\t{}\n", self.label_function, self.label, self.comment),
 
             // Jump and link instruction, both with a register as destination or label
             JAL => {
                 if self.src1 == 0 {
                     format!(
-                        "\t{}\t{}, {}\n",
+                        "\t{}\t{}, {}\t{}\n",
                         self.tt.to_string(),
                         RiscvInstruction::reg_to_string(self.dest, self.register_allocated),
-                        self.name
+                        self.name,
+                        self.comment
                     )
                 } else {
                     format!(
-                        "\tjalr\t{}, {}, 0\n",
+                        "\tjalr\t{}, {}, 0\t{}\n",
                         RiscvInstruction::reg_to_string(self.dest, self.register_allocated),
                         RiscvInstruction::reg_to_string(self.src1, self.register_allocated),
+                        self.comment
                     )
                 }
             }
 
             // Branch to label comparing two registers
             BEQ | BNE => format!(
-                "\t{}\t{}, {}, L_{}_{}\n",
+                "\t{}\t{}, {}, L_{}_{}\t{}\n",
                 self.tt.to_string(),
                 RiscvInstruction::reg_to_string(self.src1, self.register_allocated),
                 RiscvInstruction::reg_to_string(self.src2, self.register_allocated),
                 self.label_function,
-                self.label
+                self.label,
+                self.comment
             ),
 
             // Branch to label comparing two registers, possible unsigned version
@@ -285,38 +292,41 @@ impl RiscvInstruction {
                     opcode += &"u";
                 }
                 format!(
-                    "{}\t{}, {}, L_{}_{}\n",
+                    "{}\t{}, {}, L_{}_{}\t{}\n",
                     opcode,
                     RiscvInstruction::reg_to_string(self.src1, self.register_allocated),
                     RiscvInstruction::reg_to_string(self.src2, self.register_allocated),
                     self.label_function,
-                    self.label
+                    self.label,
+                    self.comment
                 )
             }
 
             // Load instruction
             LH | LW | LB => format!(
-                "\t{}\t{}, {}({})\n",
+                "\t{}\t{}, {}({})\t{}\n",
                 self.tt.to_string(),
                 RiscvInstruction::reg_to_string(self.dest, self.register_allocated),
                 self.immediate,
-                RiscvInstruction::reg_to_string(self.src1, self.register_allocated)
+                RiscvInstruction::reg_to_string(self.src1, self.register_allocated),
+                self.comment
             ),
 
             // Store instruction
             SB | SH | SW => format!(
-                "\t{}\t{}, {}({})\n",
+                "\t{}\t{}, {}({})\t{}\n",
                 self.tt.to_string(),
                 RiscvInstruction::reg_to_string(self.src2, self.register_allocated),
                 self.immediate,
                 RiscvInstruction::reg_to_string(self.src1, self.register_allocated),
+                self.comment
             ),
             // Label
-            LABEL => format!("L_{}_{}:\n", self.label_function, self.label),
+            LABEL => format!("L_{}_{}:\t{}\n", self.label_function, self.label, self.comment),
             // NOP
-            NOP => format!("\t{}\n", self.tt.to_string()),
+            NOP => format!("\t{}\t{}\n", self.tt.to_string(), self.comment),
             // Label function
-            LABELFUNCTION => format!("\n{}:\n", self.name),
+            LABELFUNCTION => format!("\n{}:\t{}\n", self.name, self.comment),
         }
     }
 }
